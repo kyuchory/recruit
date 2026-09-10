@@ -13,11 +13,10 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
- * MVP step 1 security shell.
- *
- * <p>Only public infrastructure endpoints are open. Real authentication
- * (Google OAuth2 + server session, per design v1.1 section 7.1) and CSRF
- * hardening land in the {@code auth} package in a later step.
+ * Dev security shell. Caller identity is resolved by
+ * {@link com.recruitinbox.common.security.CurrentUserProvider}, so the HTTP
+ * layer only needs CORS + a permissive matcher here. Google OAuth2 login,
+ * session hardening and CSRF for cookie auth are added in the login step.
  */
 @Configuration
 public class SecurityConfig {
@@ -26,20 +25,18 @@ public class SecurityConfig {
 
     public SecurityConfig(@Value("${app.cors.allowed-origins}") String allowedOrigins) {
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
+                .map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                // TODO(auth step): enable CSRF with cookie token repository once session auth exists.
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/ping", "/api/v1/health").permitAll()
-                        .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        .requestMatchers("/api/v1/**").permitAll()
+                        .requestMatchers("/actuator/health/**", "/actuator/info", "/v3/api-docs/**",
+                                "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated())
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable());
@@ -52,6 +49,7 @@ public class SecurityConfig {
         config.setAllowedOrigins(allowedOrigins);
         config.setAllowedMethods(List.of("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
+        config.setExposedHeaders(List.of("X-Request-Id"));
         config.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
