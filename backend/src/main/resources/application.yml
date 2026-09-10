@@ -45,6 +45,9 @@ server:
 app:
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  auth:
+    frontend-post-login-url: ${FRONTEND_POST_LOGIN_URL:http://localhost:3000/app}
+    frontend-login-url: ${FRONTEND_LOGIN_URL:http://localhost:3000/login}
 
 management:
   endpoints:
@@ -97,3 +100,16 @@ storage:
 notifications:
   enabled: ${NOTIFICATIONS_ENABLED:true}
   dispatch-interval-ms: 15000
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:}
+            client-secret: ${GOOGLE_CLIENT_SECRET:}
+            scope: openid,email,profile
+        provider:
+          google:
+            issuer-uri: https://accounts.google.com
+
