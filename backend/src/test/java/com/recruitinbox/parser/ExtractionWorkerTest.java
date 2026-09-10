@@ -115,8 +115,15 @@ class ExtractionWorkerTest {
         assertThat(failed.getErrorCode()).isEqualTo("LEASE_EXPIRED");
     }
 
+    @org.springframework.test.context.bean.override.mockito.MockitoBean
+    ExtractionProcessor processor;
+
     @Test
-    void processClaimedProducesAProposalWithTheStub() {
+    void processClaimedFinalizesTheRunFromTheProcessorOutcome() {
+        org.mockito.Mockito.when(processor.process(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(ProcessOutcome.succeeded(
+                        java.util.Map.of("schemaVersion", "job.v1.1"), java.util.List.of("OK")));
+
         UUID id = queued(1).getId();
         claimDao.claimDue(10, 150);
 
@@ -125,7 +132,6 @@ class ExtractionWorkerTest {
         ExtractionRun done = runs.findById(id).orElseThrow();
         assertThat(done.getStatus()).isEqualTo(ExtractionRunStatus.SUCCEEDED);
         assertThat(done.getResult()).containsEntry("schemaVersion", "job.v1.1");
-        assertThat(done.getWarnings()).isNotEmpty();
         assertThat(done.getFinishedAt()).isNotNull();
         assertThat(done.getLeaseToken()).isNull();
     }

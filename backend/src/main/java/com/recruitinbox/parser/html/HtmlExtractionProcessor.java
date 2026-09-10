@@ -1,0 +1,81 @@
+package com.recruitinbox.parser.html;
+
+import java.util.List;
+import java.util.Map;
+
+import org.jsoup.Jsoup;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Primary;
+import org.springframework.stereotype.Component;
+
+import com.recruitinbox.link.Link;
+import com.recruitinbox.link.LinkRepository;
+import com.recruitinbox.parser.ExtractionProcessor;
+import com.recruitinbox.parser.ExtractionRun;
+import com.recruitinbox.parser.ProcessOutcome;
+
+/**
+ * Rule-based URL analysis (Step 10, no AI): fetch under the SSRF policy, run
+ * {@link JobHtmlExtractor}, and store the candidate proposal in
+ * {@code extraction_runs.result}. Never writes to applications/events.
+ * Step 11 chains an AI text pass here for the still-missing fields.
+ */
+@Component
+@Primary
+public class HtmlExtractionProcessor implements ExtractionProcessor {
+
+    private static final Logger log = LoggerFactory.getLogger(HtmlExtractionProcessor.class);
+
+    private final LinkRepository links;
+    private final JobPageFetcher fetcher;
+    private final JobHtmlExtractor extractor;
+
+    public HtmlExtractionProcessor(LinkRepository links, JobPageFetcher fetcher, JobHtmlExtractor extractor) {
+        this.links = links;
+        this.fetcher = fetcher;
+        this.extractor = extractor;
+    }
+
+    @Override
+    public ProcessOutcome process(ExtractionRun run) {
+        Link link = links.findByIdAndOwnerId(run.getLinkId(), run.getOwnerId()).orElse(null);
+        if (link == null) {
+            return ProcessOutcome.failed("LINK_GONE");
+        }
+        if (link.getOriginalUrl() == null || link.getOriginalUrl().isBlank()) {
+            return ProcessOutcome.needsInput("NO_URL", List.of("NO_SOURCE_URL"));
+        }
+
+        JobPageFetcher.FetchResult fetched;
+        try {
+            fetched = fetcher.fetch(link.getNormalizedUrl() != null ? link.getNormalizedUrl() : link.getOriginalUrl());
+        } catch (JobPageFetcher.FetchException e) {
+            log.info("fetch failed for run {} ({}): {}", run.getId(), e.code(), e.getMessage());
+            return switch (e.code()) {
+                case "UNSAFE_URL" -> ProcessOutcome.failed("UNSAFE_URL");
+                case "FETCH_BLOCKED", "FETCH_NOT_HTML" -> ProcessOutcome.needsInput(e.code(), List.of(e.code()));
+                case "FETCH_TOO_LARGE" -> ProcessOutcome.needsInput("FETCH_TOO_LARGE", List.of("FETCH_TOO_LARGE"));
+                default -> e.retryable() ? ProcessOutcome.retryable(e.code()) : ProcessOutcome.failed(e.code());
+            };
+        }
+
+        String textLen = Jsoup.parse(fetched.html()).text();
+        Map<String, Object> result = extractor.extract(fetched.html(), fetched.finalUrl());
+
+        @SuppressWarnings("unchecked")
+        List<Object> warnings = (List<Object>) result.getOrDefault("warnings", List.of());
+        boolean noSignal = ((List<?>) result.getOrDefault("positions", List.of())).isEmpty();
+        if (noSignal && textLen.length() < 400) {
+            return ProcessOutcome.needsInput("JS_SHELL_OR_EMPTY",
+                    concat(warnings, "LOW_SIGNAL_PAGE"));
+        }
+        return ProcessOutcome.succeeded(result, warnings);
+    }
+
+    private static List<Object> concat(List<Object> base, String extra) {
+        var out = new java.util.ArrayList<Object>(base);
+        out.add(extra);
+        return out;
+    }
+}
