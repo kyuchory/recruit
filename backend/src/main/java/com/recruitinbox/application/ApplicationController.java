@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.recruitinbox.application.dto.ApplicationResponse;
+import com.recruitinbox.application.dto.ConfirmRequest;
 import com.recruitinbox.application.dto.CreateApplicationRequest;
 import com.recruitinbox.application.dto.UpdateApplicationRequest;
 import com.recruitinbox.common.security.CurrentUserProvider;
@@ -29,10 +30,13 @@ import jakarta.validation.Valid;
 public class ApplicationController {
 
     private final ApplicationService service;
+    private final ConfirmService confirmService;
     private final CurrentUserProvider currentUser;
 
-    public ApplicationController(ApplicationService service, CurrentUserProvider currentUser) {
+    public ApplicationController(ApplicationService service, ConfirmService confirmService,
+            CurrentUserProvider currentUser) {
         this.service = service;
+        this.confirmService = confirmService;
         this.currentUser = currentUser;
     }
 
@@ -64,5 +68,10 @@ public class ApplicationController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id, @RequestHeader("If-Match") String ifMatch) {
         service.delete(currentUser.requireCurrentUserId(), id, VersionHeader.parse(ifMatch));
+    }
+
+    @PostMapping("/{id}/confirm")
+    public ConfirmService.Result confirm(@PathVariable UUID id, @RequestBody @Valid ConfirmRequest req) {
+        return confirmService.confirm(currentUser.requireCurrentUserId(), id, req);
     }
 }

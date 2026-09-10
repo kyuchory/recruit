@@ -80,11 +80,17 @@ public class ApplicationService {
                 .orElseThrow(() -> ApiException.notFound("application"));
         requireVersion(a.getVersion(), req.expectedVersion());
 
+        java.util.Map<String, Object> meta = a.getFieldMeta() == null
+                ? new java.util.HashMap<>() : new java.util.HashMap<>(a.getFieldMeta());
+        String userEditedAt = Instant.now().toString();
+
         if (req.companyName() != null) {
             a.setCompanyName(req.companyName());
+            markUserEdited(meta, "companyName", userEditedAt);
         }
         if (req.positionTitle() != null) {
             a.setPositionTitle(req.positionTitle());
+            markUserEdited(meta, "positionTitle", userEditedAt);
         }
         if (req.employmentType() != null) {
             a.setEmploymentType(req.employmentType());
@@ -98,6 +104,7 @@ public class ApplicationService {
         if (req.notes() != null) {
             a.setNotes(req.notes());
         }
+        a.setFieldMeta(meta);
         if (req.status() != null) {
             applyStatus(a, req.status());
         }
@@ -131,6 +138,10 @@ public class ApplicationService {
         // TODO(Step 15): status-driven notification cancellation
         //  (APPLIED/IN_PROGRESS -> cancel DOCUMENT_DEADLINE only;
         //   REJECTED/WITHDRAWN/archive -> cancel all pending).
+    }
+
+    private static void markUserEdited(java.util.Map<String, Object> meta, String field, String at) {
+        meta.put(field, java.util.Map.of("source", "USER", "userEditedAt", at));
     }
 
     private void requireVersion(Long actual, Long expected) {
