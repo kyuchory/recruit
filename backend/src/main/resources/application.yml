@@ -83,3 +83,13 @@ parser:
   enabled: ${PARSER_ENABLED:true}
   fetch:
     allow-private-hosts: ${PARSER_ALLOW_PRIVATE_HOSTS:false}
+
+storage:
+  provider: ${STORAGE_PROVIDER:local}
+  public-base-url: ${STORAGE_PUBLIC_BASE_URL:http://localhost:8080}
+  local:
+    base-dir: ${STORAGE_LOCAL_DIR:}
+  s3:
+    bucket: ${S3_BUCKET:}
+    region: ${S3_REGION:}
+    endpoint: ${S3_ENDPOINT:}
