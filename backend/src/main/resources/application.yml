@@ -93,3 +93,7 @@ storage:
     bucket: ${S3_BUCKET:}
     region: ${S3_REGION:}
     endpoint: ${S3_ENDPOINT:}
+
+notifications:
+  enabled: ${NOTIFICATIONS_ENABLED:true}
+  dispatch-interval-ms: 15000

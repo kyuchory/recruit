@@ -13,16 +13,20 @@ import com.recruitinbox.applicationevent.dto.CreateEventRequest;
 import com.recruitinbox.applicationevent.dto.EventResponse;
 import com.recruitinbox.applicationevent.dto.UpdateEventRequest;
 import com.recruitinbox.common.error.ApiException;
+import com.recruitinbox.notification.NotificationPlanner;
 
 @Service
 public class ApplicationEventService {
 
     private final ApplicationEventRepository events;
     private final ApplicationRepository applications;
+    private final NotificationPlanner notificationPlanner;
 
-    public ApplicationEventService(ApplicationEventRepository events, ApplicationRepository applications) {
+    public ApplicationEventService(ApplicationEventRepository events, ApplicationRepository applications,
+            NotificationPlanner notificationPlanner) {
         this.events = events;
         this.applications = applications;
+        this.notificationPlanner = notificationPlanner;
     }
 
     @Transactional
@@ -135,14 +139,36 @@ public class ApplicationEventService {
             if (e.getStatus() == EventStatus.SCHEDULED) {
                 e.setStatus(EventStatus.UNSCHEDULED);
             }
-            // TODO(Step 15): notificationPlanner.cancelFuture(e.getId());
         }
 
+        EventResponse out;
         try {
-            return EventResponse.from(events.saveAndFlush(e));
+            out = EventResponse.from(events.saveAndFlush(e));
         } catch (OptimisticLockingFailureException ex) {
             throw ApiException.versionConflict();
         }
+        if (scheduleChanged) {
+            notificationPlanner.replan(ownerId, eventId); // cancels; not eligible until re-confirmed
+        }
+        return out;
+    }
+
+    @Transactional
+    public EventResponse confirm(java.util.UUID ownerId, java.util.UUID eventId, Long expectedVersion) {
+        ApplicationEvent e = events.findByIdAndOwnerId(eventId, ownerId)
+                .orElseThrow(() -> ApiException.notFound("event"));
+        requireVersion(e.getVersion(), expectedVersion);
+        if (e.getScheduleKind() != ScheduleKind.EXACT && e.getScheduleKind() != ScheduleKind.DATE_ONLY) {
+            throw new ApiException(com.recruitinbox.common.error.ErrorCode.AMBIGUOUS_SCHEDULE,
+                    "only EXACT or DATE_ONLY events can be confirmed for scheduling");
+        }
+        java.time.Instant now = java.time.Instant.now();
+        e.setConfirmedAt(now);
+        e.setConfirmedBy(ownerId);
+        e.setStatus(EventStatus.SCHEDULED);
+        EventResponse out = EventResponse.from(events.saveAndFlush(e));
+        notificationPlanner.replan(ownerId, eventId);
+        return out;
     }
 
     @Transactional
@@ -150,7 +176,7 @@ public class ApplicationEventService {
         ApplicationEvent e = events.findByIdAndOwnerId(eventId, ownerId)
                 .orElseThrow(() -> ApiException.notFound("event"));
         requireVersion(e.getVersion(), expectedVersion);
-        // TODO(Step 15): cancel this event's pending notifications/deliveries first.
+        notificationPlanner.cancelAllForEvent(eventId);
         events.delete(e);
     }
 

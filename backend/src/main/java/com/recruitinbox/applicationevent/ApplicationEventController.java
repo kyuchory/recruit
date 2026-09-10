@@ -61,4 +61,13 @@ public class ApplicationEventController {
     public void delete(@PathVariable UUID eventId, @RequestHeader("If-Match") String ifMatch) {
         service.delete(currentUser.requireCurrentUserId(), eventId, VersionHeader.parse(ifMatch));
     }
+
+    public record ConfirmEventRequest(Long expectedVersion) {
+    }
+
+    @PostMapping("/events/{eventId}/confirm")
+    public EventResponse confirm(@PathVariable UUID eventId, @RequestBody ConfirmEventRequest req) {
+        return service.confirm(currentUser.requireCurrentUserId(), eventId,
+                req == null ? null : req.expectedVersion());
+    }
 }
