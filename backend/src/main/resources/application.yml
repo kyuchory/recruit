@@ -66,3 +66,20 @@ logging:
   level:
     org.flywaydb: info
     org.hibernate.SQL: warn
+
+ai:
+  enabled: ${AI_ENABLED:false}
+  provider: openai
+  text-model: ${AI_MODEL_TEXT:gpt-4o-mini}
+  vision-model: ${AI_MODEL_VISION:gpt-4o-mini}
+  max-input-tokens: 6000
+  max-output-tokens: 1200
+  request-timeout-ms: 45000
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+
+parser:
+  enabled: ${PARSER_ENABLED:true}
+  fetch:
+    allow-private-hosts: ${PARSER_ALLOW_PRIVATE_HOSTS:false}

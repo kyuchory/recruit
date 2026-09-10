@@ -11,6 +11,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.recruitinbox.ai.AiProperties;
+import com.recruitinbox.ai.AiUsageRecorder;
+import com.recruitinbox.ai.TextExtractor;
 import com.recruitinbox.link.Link;
 import com.recruitinbox.link.LinkRepository;
 import com.recruitinbox.parser.ExtractionRun;
@@ -42,7 +45,10 @@ class HtmlExtractionProcessorTest {
     }
 
     private HtmlExtractionProcessor processor(JobPageFetcher fetcher) {
-        return new HtmlExtractionProcessor(links, fetcher, extractor);
+        TextExtractor disabled = req -> TextExtractor.Result.empty("AI_DISABLED");
+        AiUsageRecorder noopUsage = org.mockito.Mockito.mock(AiUsageRecorder.class);
+        AiProperties aiOff = new AiProperties(false, null, null, null, 0, 0, 0, null);
+        return new HtmlExtractionProcessor(links, fetcher, extractor, disabled, noopUsage, aiOff);
     }
 
     @Test

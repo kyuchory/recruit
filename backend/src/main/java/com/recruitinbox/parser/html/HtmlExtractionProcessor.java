@@ -9,6 +9,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
+import com.recruitinbox.ai.AiProperties;
+import com.recruitinbox.ai.AiUsageRecorder;
+import com.recruitinbox.ai.TextExtractor;
 import com.recruitinbox.link.Link;
 import com.recruitinbox.link.LinkRepository;
 import com.recruitinbox.parser.ExtractionProcessor;
@@ -30,11 +33,18 @@ public class HtmlExtractionProcessor implements ExtractionProcessor {
     private final LinkRepository links;
     private final JobPageFetcher fetcher;
     private final JobHtmlExtractor extractor;
+    private final TextExtractor textExtractor;
+    private final AiUsageRecorder aiUsage;
+    private final AiProperties aiProps;
 
-    public HtmlExtractionProcessor(LinkRepository links, JobPageFetcher fetcher, JobHtmlExtractor extractor) {
+    public HtmlExtractionProcessor(LinkRepository links, JobPageFetcher fetcher, JobHtmlExtractor extractor,
+            TextExtractor textExtractor, AiUsageRecorder aiUsage, AiProperties aiProps) {
         this.links = links;
         this.fetcher = fetcher;
         this.extractor = extractor;
+        this.textExtractor = textExtractor;
+        this.aiUsage = aiUsage;
+        this.aiProps = aiProps;
     }
 
     @Override
@@ -60,22 +70,41 @@ public class HtmlExtractionProcessor implements ExtractionProcessor {
             };
         }
 
-        String textLen = Jsoup.parse(fetched.html()).text();
+        String pageText = Jsoup.parse(fetched.html()).text();
         Map<String, Object> result = extractor.extract(fetched.html(), fetched.finalUrl());
 
         @SuppressWarnings("unchecked")
-        List<Object> warnings = (List<Object>) result.getOrDefault("warnings", List.of());
-        boolean noSignal = ((List<?>) result.getOrDefault("positions", List.of())).isEmpty();
-        if (noSignal && textLen.length() < 400) {
-            return ProcessOutcome.needsInput("JS_SHELL_OR_EMPTY",
-                    concat(warnings, "LOW_SIGNAL_PAGE"));
+        List<Object> warnings = new java.util.ArrayList<>(
+                (List<Object>) result.getOrDefault("warnings", List.of()));
+        boolean noPositions = ((List<?>) result.getOrDefault("positions", List.of())).isEmpty();
+        boolean companyMissing = "missing".equals(
+                ((Map<?, ?>) result.getOrDefault("companyName", Map.of())).get("quality"));
+
+        // AI text pass only for fields the rules could not resolve (v1.1 section 10.1).
+        if (aiProps.enabled() && (noPositions || companyMissing) && !pageText.isBlank()) {
+            List<String> missing = new java.util.ArrayList<>();
+            if (companyMissing) {
+                missing.add("companyName");
+            }
+            if (noPositions) {
+                missing.add("positionTitle");
+                missing.add("documentDeadline");
+            }
+            TextExtractor.Result ai = textExtractor.extract(new TextExtractor.Request(
+                    run.getId(), run.getOwnerId(), link.getNormalizedUrl(), pageText, missing, "Asia/Seoul"));
+            if (!ai.fields().isEmpty()) {
+                result.put("aiFields", ai.fields());
+            }
+            warnings.addAll(ai.warnings());
+            aiUsage.record(run.getOwnerId(), run.getId(), "text", ai.usage());
+            noPositions = noPositions && !result.containsKey("aiFields");
+        }
+
+        result.put("warnings", warnings);
+        if (noPositions && pageText.length() < 400 && !result.containsKey("aiFields")) {
+            warnings.add("LOW_SIGNAL_PAGE");
+            return ProcessOutcome.needsInput("JS_SHELL_OR_EMPTY", warnings);
         }
         return ProcessOutcome.succeeded(result, warnings);
-    }
-
-    private static List<Object> concat(List<Object> base, String extra) {
-        var out = new java.util.ArrayList<Object>(base);
-        out.add(extra);
-        return out;
     }
 }
