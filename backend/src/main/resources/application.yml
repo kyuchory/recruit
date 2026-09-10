@@ -69,6 +69,9 @@ logging:
   level:
     org.flywaydb: info
     org.hibernate.SQL: warn
+  pattern:
+    # request id from the RequestId filter MDC; no credentials / URLs / tokens in messages
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{requestId:-}] %logger{36} - %msg%n"
 
 ai:
   enabled: ${AI_ENABLED:false}

@@ -1,0 +1,426 @@
+openapi: 3.1.0
+info:
+  title: 채용공고 Inbox API
+  version: 0.1.0
+  description: >
+    Hand-maintained snapshot of the implemented REST surface (Steps 6–16).
+    Model: recruit-inbox-mvp-design-v1.1.md §7. Frontend types mirror this in
+    frontend/lib/types.ts. springdoc auto-generation is deferred until a
+    Spring Boot 4 compatible release ships.
+servers:
+  - url: http://localhost:8080
+security:
+  - devUser: []
+tags:
+  - name: auth
+  - name: links
+  - name: applications
+  - name: events
+  - name: notification-rules
+  - name: notifications
+  - name: uploads
+
+paths:
+  /api/v1/ping:
+    get:
+      tags: [auth]
+      security: []
+      summary: Liveness probe
+      responses: { "200": { description: ok } }
+  /api/v1/health:
+    get:
+      tags: [auth]
+      security: []
+      summary: Stack health (postgres/redis/flyway)
+      responses: { "200": { description: ok } }
+
+  /api/v1/me:
+    get:
+      tags: [auth]
+      summary: Current user
+      responses:
+        "200": { description: user }
+        "401": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/csrf:
+    get: { tags: [auth], summary: CSRF token, responses: { "200": { description: token } } }
+  /api/v1/auth/logout:
+    post: { tags: [auth], summary: Invalidate session, responses: { "204": { description: no content } } }
+
+  /api/v1/links:
+    post:
+      tags: [links]
+      summary: Import a job URL (async). 202 new, 200 duplicate.
+      parameters:
+        - { name: Idempotency-Key, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties: { url: { type: string, maxLength: 4096 } }
+      responses:
+        "202": { description: queued, content: { application/json: { schema: { $ref: "#/components/schemas/LinkImportResponse" } } } }
+        "200": { description: existing }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/links/{id}:
+    get:
+      tags: [links]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: link + applications + latestRun }, "404": { $ref: "#/components/responses/Error" } }
+  /api/v1/extractions/{id}:
+    get:
+      tags: [links]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { description: run, content: { application/json: { schema: { $ref: "#/components/schemas/ExtractionRunResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/applications:
+    get:
+      tags: [applications]
+      parameters:
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/ApplicationStatus" } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 30, maximum: 100 } }
+      responses:
+        "200": { description: page, content: { application/json: { schema: { $ref: "#/components/schemas/ApplicationPage" } } } }
+    post:
+      tags: [applications]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [linkId]
+              properties:
+                linkId: { type: string, format: uuid }
+                positionKey: { type: string, maxLength: 100 }
+                companyName: { type: string }
+                positionTitle: { type: string }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/ApplicationResponse" } } } }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/applications/{id}:
+    get:
+      tags: [applications]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: application }, "404": { $ref: "#/components/responses/Error" } }
+    patch:
+      tags: [applications]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedVersion]
+              properties:
+                expectedVersion: { type: integer }
+                companyName: { type: string }
+                positionTitle: { type: string }
+                status: { $ref: "#/components/schemas/ApplicationStatus" }
+                notes: { type: string }
+                archived: { type: boolean }
+      responses:
+        "200": { description: updated }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [applications]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: If-Match, in: header, required: true, schema: { type: string } }
+      responses: { "204": { description: deleted }, "412": { $ref: "#/components/responses/Error" }, "428": { $ref: "#/components/responses/Error" } }
+  /api/v1/applications/{id}/confirm:
+    post:
+      tags: [applications]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedVersion]
+              properties:
+                expectedVersion: { type: integer }
+                runId: { type: string, format: uuid }
+                companyName: { type: string }
+                positionTitle: { type: string }
+                placeholderCandidates:
+                  type: array
+                  items:
+                    type: object
+                    required: [type]
+                    properties:
+                      type: { $ref: "#/components/schemas/EventType" }
+                      customLabel: { type: string }
+                      sourceCandidateId: { type: string }
+      responses: { "200": { description: application + createdEvents }, "409": { $ref: "#/components/responses/Error" } }
+  /api/v1/applications/{id}/events:
+    get:
+      tags: [events]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses: { "200": { description: event list } }
+    post:
+      tags: [events]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/EventCreate" } } }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/EventResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /api/v1/events/{eventId}:
+    get: { tags: [events], parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: event } } }
+    patch:
+      tags: [events]
+      parameters: [{ $ref: "#/components/parameters/EventId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/EventUpdate" } } } }
+      responses: { "200": { description: updated }, "409": { $ref: "#/components/responses/Error" }, "422": { $ref: "#/components/responses/Error" } }
+    delete:
+      tags: [events]
+      parameters:
+        - { $ref: "#/components/parameters/EventId" }
+        - { name: If-Match, in: header, required: true, schema: { type: string } }
+      responses: { "204": { description: deleted } }
+  /api/v1/events/{eventId}/confirm:
+    post:
+      tags: [events]
+      parameters: [{ $ref: "#/components/parameters/EventId" }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { expectedVersion: { type: integer } } } } }
+      responses: { "200": { description: confirmed + scheduled }, "409": { $ref: "#/components/responses/Error" } }
+  /api/v1/events/{eventId}/notification-rules:
+    get: { tags: [notification-rules], parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: rules } } }
+    post:
+      tags: [notification-rules]
+      parameters: [{ $ref: "#/components/parameters/EventId" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RuleCreate" } } } }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/RuleResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/events/{eventId}/notifications:
+    get: { tags: [notifications], parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: scheduled notifications } } }
+  /api/v1/notification-rules/{id}:
+    patch:
+      tags: [notification-rules]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RuleUpdate" } } } }
+      responses: { "200": { description: updated } }
+    delete:
+      tags: [notification-rules]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: If-Match, in: header, required: true, schema: { type: string } }
+      responses: { "204": { description: deleted } }
+
+  /api/v1/notifications:
+    get:
+      tags: [notifications]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 30 } }
+      responses: { "200": { description: IN_APP inbox + unreadCount } }
+  /api/v1/notifications/{id}:
+    patch:
+      tags: [notifications]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { read: { type: boolean } } } } }
+      responses: { "200": { description: marked } }
+
+  /api/v1/uploads:
+    post:
+      tags: [uploads]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [linkId, mime]
+              properties:
+                linkId: { type: string, format: uuid }
+                mime: { type: string, enum: [image/png, image/jpeg, image/webp] }
+      responses:
+        "201": { description: "{ assetId, uploadUrl, uploadMethod, expiresAt }" }
+        "415": { $ref: "#/components/responses/Error" }
+  /api/v1/uploads/{id}/content:
+    post:
+      tags: [uploads]
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { type: object, properties: { file: { type: string, format: binary } } }
+      responses:
+        "200": { description: "READY asset view" }
+        "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /api/v1/uploads/{id}/complete:
+    post: { tags: [uploads], parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: READY } } }
+  /api/v1/uploads/{id}:
+    get: { tags: [uploads], parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: asset view } } }
+    delete:
+      tags: [uploads]
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: If-Match, in: header, required: true, schema: { type: string } }
+      responses: { "204": { description: deleted } }
+
+components:
+  securitySchemes:
+    devUser:
+      type: apiKey
+      in: header
+      name: X-Dev-User-Id
+      description: Dev only. Prod uses a Spring Session cookie from Google OAuth2.
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    EventId: { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+                  retryable: { type: boolean }
+                  requestId: { type: string }
+                  fields: { type: object, additionalProperties: { type: string } }
+  schemas:
+    ApplicationStatus:
+      type: string
+      enum: [INTERESTED, PLANNED, APPLIED, IN_PROGRESS, ACCEPTED, REJECTED, WITHDRAWN]
+    EventType:
+      type: string
+      enum: [DOCUMENT_DEADLINE, NCS, CODING_TEST, AI_ASSESSMENT, INTERVIEW_1, INTERVIEW_2, FINAL_INTERVIEW, RESULT_ANNOUNCEMENT, ORIENTATION, CUSTOM]
+    ScheduleKind: { type: string, enum: [EXACT, DATE_ONLY, UNKNOWN, ROLLING, UNTIL_FILLED] }
+    EventStatus: { type: string, enum: [UNSCHEDULED, SCHEDULED, COMPLETED, CANCELLED] }
+    EventResult: { type: string, enum: [NOT_STARTED, WAITING, PASSED, FAILED, SKIPPED] }
+    LinkImportResponse:
+      type: object
+      properties:
+        linkId: { type: string, format: uuid }
+        applicationId: { type: string, format: uuid }
+        extractionRunId: { type: string, format: uuid, nullable: true }
+        status: { type: string }
+        duplicate: { type: boolean }
+    ExtractionRunResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, NEEDS_INPUT, FAILED, CANCELLED] }
+        progressStage: { type: string, nullable: true }
+        attemptCount: { type: integer }
+        result: { type: object }
+        warnings: { type: array, items: {} }
+        errorCode: { type: string, nullable: true }
+    ApplicationResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        linkId: { type: string, format: uuid }
+        positionKey: { type: string }
+        companyName: { type: string, nullable: true }
+        positionTitle: { type: string, nullable: true }
+        status: { $ref: "#/components/schemas/ApplicationStatus" }
+        reviewStatus: { type: string, enum: [PENDING, CONFIRMED, NOT_REQUIRED] }
+        appliedAt: { type: string, format: date-time, nullable: true }
+        notes: { type: string }
+        archivedAt: { type: string, format: date-time, nullable: true }
+        version: { type: integer }
+        fieldMeta: { type: object }
+    ApplicationPage:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/ApplicationResponse" } }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer }
+        totalPages: { type: integer }
+    EventCreate:
+      type: object
+      required: [type]
+      properties:
+        type: { $ref: "#/components/schemas/EventType" }
+        customLabel: { type: string }
+        sortOrder: { type: integer }
+        scheduleKind: { $ref: "#/components/schemas/ScheduleKind" }
+        scheduledAt: { type: string, format: date-time }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        scheduledDate: { type: string, format: date }
+        timezone: { type: string }
+        location: { type: string }
+        url: { type: string }
+        notes: { type: string }
+    EventUpdate:
+      allOf:
+        - $ref: "#/components/schemas/EventCreate"
+        - type: object
+          required: [expectedVersion]
+          properties:
+            expectedVersion: { type: integer }
+            status: { $ref: "#/components/schemas/EventStatus" }
+            result: { $ref: "#/components/schemas/EventResult" }
+            clearSchedule: { type: boolean }
+    EventResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        applicationId: { type: string, format: uuid }
+        type: { $ref: "#/components/schemas/EventType" }
+        customLabel: { type: string, nullable: true }
+        scheduleKind: { $ref: "#/components/schemas/ScheduleKind" }
+        scheduledAt: { type: string, format: date-time, nullable: true }
+        startAt: { type: string, format: date-time, nullable: true }
+        endAt: { type: string, format: date-time, nullable: true }
+        scheduledDate: { type: string, format: date, nullable: true }
+        timezone: { type: string }
+        status: { $ref: "#/components/schemas/EventStatus" }
+        result: { $ref: "#/components/schemas/EventResult" }
+        confirmedAt: { type: string, format: date-time, nullable: true }
+        scheduleVersion: { type: integer }
+        version: { type: integer }
+    RuleCreate:
+      type: object
+      required: [channel, anchor, mode]
+      properties:
+        channel: { type: string, enum: [EMAIL, IN_APP] }
+        anchor: { type: string, enum: [SCHEDULED_AT, START_AT, END_AT, DATE] }
+        mode: { type: string, enum: [BEFORE_MINUTES, CALENDAR_DAYS] }
+        offsetMinutes: { type: integer, minimum: 0, maximum: 43200 }
+        offsetDays: { type: integer, minimum: 0, maximum: 30 }
+        localTime: { type: string, example: "09:00:00" }
+        enabled: { type: boolean }
+    RuleUpdate:
+      allOf:
+        - $ref: "#/components/schemas/RuleCreate"
+        - type: object
+          required: [expectedVersion]
+          properties: { expectedVersion: { type: integer } }
+    RuleResponse:
+      allOf:
+        - $ref: "#/components/schemas/RuleCreate"
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            eventId: { type: string, format: uuid }
+            version: { type: integer }
