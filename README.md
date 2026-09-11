@@ -124,7 +124,7 @@ npm run dev
 ```bash
 # 백엔드: Docker 데몬만 떠 있으면 된다 (compose 불필요).
 # 통합 테스트가 Testcontainers 로 PostgreSQL 18 + Redis 8 을 자동 기동한다.
-cd backend && JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test   # 52 tests
+cd backend && JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test   # 69 tests
 
 # 프론트엔드
 cd frontend && npm run lint && npm run build
@@ -132,6 +132,22 @@ cd frontend && npm run lint && npm run build
 
 > 백엔드 통합 테스트는 `AbstractIntegrationTest` 를 상속해 Testcontainers 가 관리하는
 > PostgreSQL/Redis 컨테이너를 쓴다. `docker compose up` 은 로컬 앱 실행(`bootRun`)에만 필요하다.
+
+### 7.1 E2E (Playwright)
+
+최소 happy path 1개: dev 로그인 → URL 저장 → 지원 생성 확인 → 이벤트 등록 →
+일정 확인(confirm) → 알림 규칙 생성 → 알림 생성 확인. 백엔드(+DB/Redis)가 실제로
+떠 있어야 하며, 프론트 dev 서버는 Playwright 가 자동으로 띄운다.
+
+```bash
+docker compose up -d
+cd backend && JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew bootRun &
+cd frontend
+npx playwright install chromium   # 최초 1회
+npm run test:e2e
+```
+
+다른 포트를 쓰면 `NEXT_PUBLIC_API_BASE_URL` / `E2E_API_URL` 을 함께 맞춘다.
 
 ### 8. 자주 겪는 문제
 
