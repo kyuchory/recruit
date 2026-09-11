@@ -54,7 +54,7 @@ cp .env.example .env
 - `.env` 는 `.gitignore` 에 포함되어 커밋되지 않는다. **실제 시크릿은 절대 커밋 금지.**
 - 로컬 개발은 `.env.example` 기본값 그대로 동작한다 (외부 자격증명 불필요).
 - 실제 연동이 필요할 때만 아래 값을 채운다:
-  - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth2 로그인
+  - `SPRING_PROFILES_ACTIVE=prod` + `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth2 로그인
   - `AI_ENABLED=true` + `OPENAI_API_KEY` — LLM 텍스트 추출
   - `STORAGE_PROVIDER=s3` + `S3_BUCKET` / `S3_REGION` (+ AWS 자격증명 체인) — 이미지 S3 저장
   - 값을 비워 두면 각각 dev 대체 구현(시드 로그인 / 규칙 파서만 / 로컬 파일 저장)이 쓰인다.
@@ -108,6 +108,10 @@ npm run dev
   한 줄을 넣는다 (레포에는 커밋되지 않음). 백엔드 포트를 바꿨다면 여기도 맞춘다.
 - 개발 환경에는 Google 자격증명이 없으므로 **시드 사용자로 자동 로그인**된다
   (프론트가 `X-Dev-User-Id` 헤더를 자동 전송).
+
+운영 환경에서는 `SPRING_PROFILES_ACTIVE=prod`를 지정하고
+`GOOGLE_CLIENT_ID`와 `GOOGLE_CLIENT_SECRET`을 모두 제공해야 한다. `prod` 프로필은
+개발용 사용자 헤더를 비활성화하며, 자격증명이 빠지면 백엔드는 기동에 실패한다.
 
 ### 6. 동작 확인
 
