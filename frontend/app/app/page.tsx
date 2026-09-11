@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
+  APPLICATION_STATUS_LABELS,
   ApplicationResponse,
   EventResponse,
   EVENT_LABELS,
@@ -217,7 +218,7 @@ export default function DashboardPage() {
             {rows.map((a) => (
               <tr key={a.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                 <td className="px-3 py-2">
-                  <Badge tone={STATUS_TONE[a.status]}>{a.status}</Badge>
+                  <Badge tone={STATUS_TONE[a.status]}>{APPLICATION_STATUS_LABELS[a.status]}</Badge>
                   {a.reviewStatus === "PENDING" && (
                     <span className="ml-1">
                       <Badge tone="amber">확인필요</Badge>

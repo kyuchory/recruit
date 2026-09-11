@@ -5,11 +5,19 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
+  APPLICATION_STATUS_LABELS,
   ApplicationResponse,
+  ApplicationStatus,
+  EVENT_RESULT_LABELS,
+  EVENT_STATUS_LABELS,
   EventResponse,
   EVENT_LABELS,
   EventType,
+  EXTRACTION_STATUS_LABELS,
   ExtractionRunResponse,
+  InboxItem,
+  NOTIFICATION_CHANNEL_LABELS,
+  NOTIFICATION_STATUS_LABELS,
   RuleResponse,
 } from "@/lib/types";
 import { Badge, Button, Field, inputClass } from "@/components/ui";
@@ -25,6 +33,9 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["application", id] });
     qc.invalidateQueries({ queryKey: ["events", id] });
+    // application-level status/archive changes can cancel notifications server-side
+    // without changing the event itself, so refresh every event's notification list too.
+    qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "event-notifications" });
   };
 
   const appQ = useQuery({
@@ -66,7 +77,7 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
           <div className="flex items-center justify-between">
             <span className="font-medium">분석 상태</span>
             <Badge tone={run.status === "SUCCEEDED" ? "green" : run.status === "FAILED" ? "red" : "amber"}>
-              {run.status}
+              {EXTRACTION_STATUS_LABELS[run.status]}
             </Badge>
           </div>
           {run.status === "SUCCEEDED" && app.reviewStatus === "PENDING" && (
@@ -103,6 +114,7 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
   const [company, setCompany] = useState(app.companyName ?? "");
   const [position, setPosition] = useState(app.positionTitle ?? "");
   const [status, setStatus] = useState(app.status);
+  const [notice, setNotice] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
   const save = useMutation({
     mutationFn: () =>
       api.patch<ApplicationResponse>(`/api/v1/applications/${app.id}`, {
@@ -111,7 +123,11 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
         positionTitle: position,
         status,
       }),
-    onSuccess: onSaved,
+    onSuccess: () => {
+      onSaved();
+      setNotice({ text: "저장했습니다.", tone: "ok" });
+    },
+    onError: (e: Error) => setNotice({ text: e.message, tone: "error" }),
   });
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">
@@ -124,17 +140,31 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
         </Field>
         <Field label="지원 상태">
           <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className={inputClass}>
-            {["INTERESTED", "PLANNED", "APPLIED", "IN_PROGRESS", "ACCEPTED", "REJECTED", "WITHDRAWN"].map((s) => (
-              <option key={s}>{s}</option>
+            {(
+              ["INTERESTED", "PLANNED", "APPLIED", "IN_PROGRESS", "ACCEPTED", "REJECTED", "WITHDRAWN"] as ApplicationStatus[]
+            ).map((s) => (
+              <option key={s} value={s}>
+                {APPLICATION_STATUS_LABELS[s]}
+              </option>
             ))}
           </select>
         </Field>
       </div>
-      <div className="mt-3">
-        <Button onClick={() => save.mutate()} disabled={save.isPending}>
+      <div className="mt-3 flex items-center gap-2">
+        <Button
+          onClick={() => {
+            setNotice(null);
+            save.mutate();
+          }}
+          disabled={save.isPending}
+        >
           저장
         </Button>
-        {save.isError && <span className="ml-2 text-xs text-red-600">{(save.error as Error).message}</span>}
+        {notice && (
+          <span className={"text-xs " + (notice.tone === "ok" ? "text-green-600" : "text-red-600")}>
+            {notice.text}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -246,10 +276,19 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
     queryKey: ["rules", event.id],
     queryFn: () => api.get<RuleResponse[]>(`/api/v1/events/${event.id}/notification-rules`),
   });
+  // The rule list above is the standing configuration; this is the actual materialized
+  // notifications for this event, so cancellation (status change, archive, ...) shows up here.
+  const notificationsQ = useQuery({
+    queryKey: ["event-notifications", event.id],
+    queryFn: () => api.get<InboxItem[]>(`/api/v1/events/${event.id}/notifications`),
+  });
 
   const confirm = useMutation({
     mutationFn: () => api.post(`/api/v1/events/${event.id}/confirm`, { expectedVersion: event.version }),
-    onSuccess: onChanged,
+    onSuccess: () => {
+      onChanged();
+      qc.invalidateQueries({ queryKey: ["event-notifications", event.id] });
+    },
   });
   const addRule = useMutation({
     mutationFn: (offsetMinutes: number) =>
@@ -261,7 +300,10 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
         offsetDays: event.scheduleKind === "DATE_ONLY" ? 1 : undefined,
         localTime: event.scheduleKind === "DATE_ONLY" ? "09:00:00" : undefined,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["rules", event.id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rules", event.id] });
+      qc.invalidateQueries({ queryKey: ["event-notifications", event.id] });
+    },
   });
 
   const label = event.customLabel ?? EVENT_LABELS[event.type];
@@ -280,9 +322,9 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
           <span className="ml-2 text-gray-500">{when}</span>
         </div>
         <div className="flex gap-1">
-          <Badge tone={event.status === "SCHEDULED" ? "blue" : "gray"}>{event.status}</Badge>
+          <Badge tone={event.status === "SCHEDULED" ? "blue" : "gray"}>{EVENT_STATUS_LABELS[event.status]}</Badge>
           <Badge tone={event.result === "PASSED" ? "green" : event.result === "FAILED" ? "red" : "gray"}>
-            {event.result}
+            {EVENT_RESULT_LABELS[event.result]}
           </Badge>
         </div>
       </div>
@@ -319,10 +361,26 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
         <ul className="mt-2 text-xs text-gray-500">
           {rulesQ.data!.map((r) => (
             <li key={r.id}>
-              · {r.channel} / {r.mode === "BEFORE_MINUTES" ? `${r.offsetMinutes}분 전` : `${r.offsetDays}일 전 ${r.localTime}`}
+              · {NOTIFICATION_CHANNEL_LABELS[r.channel]} /{" "}
+              {r.mode === "BEFORE_MINUTES" ? `${r.offsetMinutes}분 전` : `${r.offsetDays}일 전 ${r.localTime}`}
             </li>
           ))}
         </ul>
+      )}
+      {(notificationsQ.data ?? []).length > 0 && (
+        <div className="mt-2 border-t border-gray-100 pt-2">
+          <span className="text-xs text-gray-400">예약된 알림</span>
+          <ul className="mt-1 text-xs text-gray-500">
+            {notificationsQ.data!.map((n) => (
+              <li key={n.id} className="flex items-center gap-1.5">
+                · {new Date(n.scheduledSendAt).toLocaleString("ko-KR")}
+                <Badge tone={n.deliveryStatus === "CANCELLED" || n.deliveryStatus === "FAILED" ? "gray" : "blue"}>
+                  {NOTIFICATION_STATUS_LABELS[n.deliveryStatus]}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

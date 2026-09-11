@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { InboxPage } from "@/lib/types";
+import { EVENT_LABELS, EventType, InboxPage, NOTIFICATION_STATUS_LABELS } from "@/lib/types";
 import { Badge, Button } from "@/components/ui";
 
 export default function NotificationsPage() {
@@ -32,6 +32,7 @@ export default function NotificationsPage() {
         {items.length === 0 && <li className="text-sm text-gray-400">알림이 없습니다.</li>}
         {items.map((n) => {
           const p = n.payload as { customLabel?: string; eventType?: string; path?: string };
+          const eventLabel = p.customLabel ?? (p.eventType ? EVENT_LABELS[p.eventType as EventType] : null) ?? "채용 일정";
           return (
             <li
               key={n.id}
@@ -41,8 +42,8 @@ export default function NotificationsPage() {
               }
             >
               <div className="flex items-center justify-between">
-                <span className="font-medium">{p.customLabel ?? p.eventType ?? "채용 일정"} 알림</span>
-                <Badge tone="gray">{n.deliveryStatus}</Badge>
+                <span className="font-medium">{eventLabel} 알림</span>
+                <Badge tone="gray">{NOTIFICATION_STATUS_LABELS[n.deliveryStatus]}</Badge>
               </div>
               <div className="mt-1 text-xs text-gray-500">
                 예정 {new Date(n.scheduledSendAt).toLocaleString("ko-KR")}

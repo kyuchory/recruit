@@ -9,6 +9,10 @@ export type EventType =
 export type ScheduleKind = "EXACT" | "DATE_ONLY" | "UNKNOWN" | "ROLLING" | "UNTIL_FILLED";
 export type EventStatus = "UNSCHEDULED" | "SCHEDULED" | "COMPLETED" | "CANCELLED";
 export type EventResult = "NOT_STARTED" | "WAITING" | "PASSED" | "FAILED" | "SKIPPED";
+export type ReviewStatus = "PENDING" | "CONFIRMED" | "NOT_REQUIRED";
+export type NotificationChannel = "EMAIL" | "IN_APP" | "WEB_PUSH" | "FCM" | "APNS";
+/** Friendly names the inbox API returns for Notification.status (see NotificationInboxController). */
+export type NotificationDeliveryStatus = "SCHEDULED" | "PROCESSING" | "SENT" | "PARTIAL" | "FAILED" | "CANCELLED";
 
 export interface ApplicationResponse {
   id: string;
@@ -20,7 +24,7 @@ export interface ApplicationResponse {
   status: ApplicationStatus;
   appliedAt: string | null;
   notes: string;
-  reviewStatus: "PENDING" | "CONFIRMED" | "NOT_REQUIRED";
+  reviewStatus: ReviewStatus;
   archivedAt: string | null;
   version: number;
   createdAt: string;
@@ -65,9 +69,11 @@ export interface LinkImportResponse {
   duplicate: boolean;
 }
 
+export type ExtractionRunStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "NEEDS_INPUT" | "FAILED" | "CANCELLED";
+
 export interface ExtractionRunResponse {
   id: string;
-  status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "NEEDS_INPUT" | "FAILED" | "CANCELLED";
+  status: ExtractionRunStatus;
   progressStage: string | null;
   attemptCount: number;
   result: Record<string, unknown>;
@@ -78,7 +84,7 @@ export interface ExtractionRunResponse {
 export interface RuleResponse {
   id: string;
   eventId: string;
-  channel: "EMAIL" | "IN_APP" | "WEB_PUSH" | "FCM" | "APNS";
+  channel: NotificationChannel;
   anchor: "SCHEDULED_AT" | "START_AT" | "END_AT" | "DATE";
   mode: "BEFORE_MINUTES" | "CALENDAR_DAYS";
   offsetMinutes: number | null;
@@ -94,7 +100,7 @@ export interface InboxItem {
   scheduledSendAt: string;
   visibleAt: string | null;
   readAt: string | null;
-  deliveryStatus: string;
+  deliveryStatus: NotificationDeliveryStatus;
   payload: Record<string, unknown>;
 }
 
@@ -152,4 +158,61 @@ export const EVENT_LABELS: Record<EventType, string> = {
   RESULT_ANNOUNCEMENT: "발표",
   ORIENTATION: "OT",
   CUSTOM: "기타",
+};
+
+export const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
+  INTERESTED: "관심",
+  PLANNED: "지원 예정",
+  APPLIED: "지원 완료",
+  IN_PROGRESS: "전형 진행중",
+  ACCEPTED: "합격",
+  REJECTED: "불합격",
+  WITHDRAWN: "지원 철회",
+};
+
+export const EVENT_STATUS_LABELS: Record<EventStatus, string> = {
+  UNSCHEDULED: "일정 미확정",
+  SCHEDULED: "일정 확정",
+  COMPLETED: "완료",
+  CANCELLED: "취소됨",
+};
+
+export const EVENT_RESULT_LABELS: Record<EventResult, string> = {
+  NOT_STARTED: "결과 대기",
+  WAITING: "발표 대기",
+  PASSED: "합격",
+  FAILED: "불합격",
+  SKIPPED: "건너뜀",
+};
+
+export const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
+  PENDING: "확인 필요",
+  CONFIRMED: "확인 완료",
+  NOT_REQUIRED: "확인 불필요",
+};
+
+export const NOTIFICATION_CHANNEL_LABELS: Record<NotificationChannel, string> = {
+  EMAIL: "이메일",
+  IN_APP: "앱 알림",
+  WEB_PUSH: "웹 푸시",
+  FCM: "FCM",
+  APNS: "APNS",
+};
+
+export const EXTRACTION_STATUS_LABELS: Record<ExtractionRunStatus, string> = {
+  QUEUED: "대기중",
+  RUNNING: "분석중",
+  SUCCEEDED: "분석 완료",
+  NEEDS_INPUT: "직접 입력 필요",
+  FAILED: "분석 실패",
+  CANCELLED: "취소됨",
+};
+
+export const NOTIFICATION_STATUS_LABELS: Record<NotificationDeliveryStatus, string> = {
+  SCHEDULED: "예약됨",
+  PROCESSING: "발송 처리중",
+  SENT: "발송됨",
+  PARTIAL: "일부 발송",
+  FAILED: "발송 실패",
+  CANCELLED: "취소됨",
 };
