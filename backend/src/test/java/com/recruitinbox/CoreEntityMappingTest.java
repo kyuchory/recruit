@@ -36,7 +36,7 @@ import com.recruitinbox.user.UserRepository;
 
 /**
  * Mapping-integrity + owner-scoping checks against the real Flyway schema
- * (needs {@code docker compose up}; Testcontainers is a later hardening step).
+ * (PostgreSQL comes from Testcontainers -- see {@link com.recruitinbox.support.AbstractIntegrationTest}).
  * {@code ddl-auto=validate} is forced, so context startup itself proves the
  * entities line up with V1/V2.
  */
@@ -46,7 +46,7 @@ import com.recruitinbox.user.UserRepository;
         "spring.jpa.hibernate.ddl-auto=validate",
         "spring.flyway.enabled=true"
 })
-class CoreEntityMappingTest {
+class CoreEntityMappingTest extends com.recruitinbox.support.AbstractIntegrationTest {
 
     @Autowired
     TestEntityManager em;

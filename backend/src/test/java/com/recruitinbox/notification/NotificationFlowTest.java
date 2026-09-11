@@ -30,7 +30,7 @@ import com.recruitinbox.user.UserRepository;
 @SpringBootTest(properties = {"notifications.enabled=false", "parser.enabled=false"})
 @AutoConfigureMockMvc
 @Transactional
-class NotificationFlowTest {
+class NotificationFlowTest extends com.recruitinbox.support.AbstractIntegrationTest {
 
     @Autowired
     MockMvc mvc;

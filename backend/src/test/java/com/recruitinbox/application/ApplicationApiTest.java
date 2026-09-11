@@ -29,7 +29,7 @@ import com.recruitinbox.user.UserRepository;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
-class ApplicationApiTest {
+class ApplicationApiTest extends com.recruitinbox.support.AbstractIntegrationTest {
 
     @Autowired
     MockMvc mvc;

@@ -31,7 +31,7 @@ import com.recruitinbox.user.UserRepository;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
-class UploadApiTest {
+class UploadApiTest extends com.recruitinbox.support.AbstractIntegrationTest {
 
     @Autowired
     MockMvc mvc;

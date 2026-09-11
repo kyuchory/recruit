@@ -24,7 +24,7 @@ import com.recruitinbox.user.UserRepository;
  * the test data must be really committed and cleaned up afterwards.
  */
 @SpringBootTest(properties = "parser.enabled=false") // drive the worker manually, no background poller races
-class ExtractionWorkerTest {
+class ExtractionWorkerTest extends com.recruitinbox.support.AbstractIntegrationTest {
 
     @Autowired
     ExtractionRunClaimDao claimDao;

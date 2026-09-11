@@ -122,15 +122,16 @@ npm run dev
 ### 7. 테스트
 
 ```bash
-# 백엔드: 로컬 PostgreSQL(docker compose up) 이 떠 있어야 한다
+# 백엔드: Docker 데몬만 떠 있으면 된다 (compose 불필요).
+# 통합 테스트가 Testcontainers 로 PostgreSQL 18 + Redis 8 을 자동 기동한다.
 cd backend && JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test   # 52 tests
 
 # 프론트엔드
 cd frontend && npm run lint && npm run build
 ```
 
-> 백엔드 통합 테스트는 아직 Testcontainers 로 전환되지 않아 실행 중인 compose
-> PostgreSQL 을 사용한다 (하드닝 항목).
+> 백엔드 통합 테스트는 `AbstractIntegrationTest` 를 상속해 Testcontainers 가 관리하는
+> PostgreSQL/Redis 컨테이너를 쓴다. `docker compose up` 은 로컬 앱 실행(`bootRun`)에만 필요하다.
 
 ### 8. 자주 겪는 문제
 
