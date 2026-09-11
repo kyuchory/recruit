@@ -14,20 +14,25 @@ import org.springframework.transaction.annotation.Transactional;
 import com.recruitinbox.application.dto.ApplicationResponse;
 import com.recruitinbox.application.dto.CreateApplicationRequest;
 import com.recruitinbox.application.dto.UpdateApplicationRequest;
+import com.recruitinbox.applicationevent.ApplicationEventType;
 import com.recruitinbox.common.error.ApiException;
 import com.recruitinbox.common.error.ErrorCode;
 import com.recruitinbox.common.web.PageResponse;
 import com.recruitinbox.link.LinkRepository;
+import com.recruitinbox.notification.NotificationPlanner;
 
 @Service
 public class ApplicationService {
 
     private final ApplicationRepository applications;
     private final LinkRepository links;
+    private final NotificationPlanner notificationPlanner;
 
-    public ApplicationService(ApplicationRepository applications, LinkRepository links) {
+    public ApplicationService(ApplicationRepository applications, LinkRepository links,
+            NotificationPlanner notificationPlanner) {
         this.applications = applications;
         this.links = links;
+        this.notificationPlanner = notificationPlanner;
     }
 
     @Transactional
@@ -106,12 +111,14 @@ public class ApplicationService {
         }
         a.setFieldMeta(meta);
         if (req.status() != null) {
-            applyStatus(a, req.status());
+            applyStatus(ownerId, a, req.status());
         }
         if (Boolean.TRUE.equals(req.archived()) && a.getArchivedAt() == null) {
             a.setArchivedAt(Instant.now());
-        } else if (Boolean.FALSE.equals(req.archived())) {
+            notificationPlanner.cancelAllForApplication(ownerId, a.getId());
+        } else if (Boolean.FALSE.equals(req.archived()) && a.getArchivedAt() != null) {
             a.setArchivedAt(null);
+            notificationPlanner.reactivateForApplication(ownerId, a.getId());
         }
 
         try {
@@ -126,18 +133,24 @@ public class ApplicationService {
         Application a = applications.findByIdAndOwnerId(id, ownerId)
                 .orElseThrow(() -> ApiException.notFound("application"));
         requireVersion(a.getVersion(), expectedVersion);
-        // FK ON DELETE CASCADE removes this application's events / rules / notifications.
+        // FK ON DELETE CASCADE removes this application's events / rules / notifications,
+        // so every pending notification is stopped (v1.1 section 9.1: delete cancels all).
         applications.delete(a);
     }
 
-    private void applyStatus(Application a, ApplicationStatus next) {
+    /** Status-driven notification cancellation, v1.1 section 9.1. */
+    private void applyStatus(UUID ownerId, Application a, ApplicationStatus next) {
         a.setStatus(next);
         if (next == ApplicationStatus.APPLIED && a.getAppliedAt() == null) {
             a.setAppliedAt(Instant.now());
         }
-        // TODO(Step 15): status-driven notification cancellation
-        //  (APPLIED/IN_PROGRESS -> cancel DOCUMENT_DEADLINE only;
-        //   REJECTED/WITHDRAWN/archive -> cancel all pending).
+        switch (next) {
+            case APPLIED, IN_PROGRESS -> notificationPlanner.cancelForApplicationEventTypes(
+                    ownerId, a.getId(), java.util.Set.of(ApplicationEventType.DOCUMENT_DEADLINE));
+            case REJECTED, WITHDRAWN -> notificationPlanner.cancelAllForApplication(ownerId, a.getId());
+            // INTERESTED / PLANNED / ACCEPTED keep their schedules (ACCEPTED still gets ORIENTATION).
+            default -> { }
+        }
     }
 
     private static void markUserEdited(java.util.Map<String, Object> meta, String field, String at) {

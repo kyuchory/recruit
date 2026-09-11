@@ -75,6 +75,7 @@ public class ApplicationEventService {
         requireVersion(e.getVersion(), req.expectedVersion());
 
         String before = scheduleSignature(e);
+        EventStatus statusBefore = e.getStatus();
 
         if (req.type() != null) {
             e.setType(req.type());
@@ -149,6 +150,11 @@ public class ApplicationEventService {
         }
         if (scheduleChanged) {
             notificationPlanner.replan(ownerId, eventId); // cancels; not eligible until re-confirmed
+        } else if (e.getStatus() != statusBefore
+                && (e.getStatus() == EventStatus.COMPLETED || e.getStatus() == EventStatus.CANCELLED)) {
+            // v1.1 section 9.1: an event explicitly stopped cancels its own pending
+            // notifications; a result-only change must not touch sibling events.
+            notificationPlanner.cancelAllForEvent(eventId);
         }
         return out;
     }

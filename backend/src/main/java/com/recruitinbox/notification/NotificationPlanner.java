@@ -7,6 +7,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -14,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.recruitinbox.applicationevent.ApplicationEvent;
 import com.recruitinbox.applicationevent.ApplicationEventRepository;
+import com.recruitinbox.applicationevent.ApplicationEventType;
 import com.recruitinbox.applicationevent.EventStatus;
 import com.recruitinbox.applicationevent.ScheduleKind;
 
@@ -42,6 +44,52 @@ public class NotificationPlanner {
 
     @Transactional
     public void cancelAllForEvent(UUID eventId) {
+        cancelPendingForEvent(eventId);
+    }
+
+    /**
+     * Cancel every still-PENDING notification across an application's events
+     * (v1.1 section 9.1: REJECTED / WITHDRAWN, archive, delete).
+     */
+    @Transactional
+    public void cancelAllForApplication(UUID ownerId, UUID applicationId) {
+        for (ApplicationEvent e : events.findByApplicationIdAndOwnerIdOrderBySortOrderAscIdAsc(applicationId, ownerId)) {
+            cancelPendingForEvent(e.getId());
+        }
+    }
+
+    /**
+     * Cancel still-PENDING notifications only for events of the given types
+     * (v1.1 section 9.1: APPLIED / IN_PROGRESS cancels DOCUMENT_DEADLINE alone,
+     * everything else keeps running).
+     */
+    @Transactional
+    public void cancelForApplicationEventTypes(UUID ownerId, UUID applicationId, Set<ApplicationEventType> types) {
+        for (ApplicationEvent e : events.findByApplicationIdAndOwnerIdOrderBySortOrderAscIdAsc(applicationId, ownerId)) {
+            if (types.contains(e.getType())) {
+                cancelPendingForEvent(e.getId());
+            }
+        }
+    }
+
+    /**
+     * Reactivate an application's schedules after un-archive (v1.1 section 9.1:
+     * "취소된 예약을 재활성화할 때는 event schedule_version 을 올리고 같은 트랜잭션에서
+     * 모든 규칙을 재평가한다"). Bumping the version frees the idempotency key so a
+     * still-future rule can be re-materialized; past / already-sent ones are not.
+     */
+    @Transactional
+    public void reactivateForApplication(UUID ownerId, UUID applicationId) {
+        for (ApplicationEvent e : events.findByApplicationIdAndOwnerIdOrderBySortOrderAscIdAsc(applicationId, ownerId)) {
+            if (e.getConfirmedAt() != null && e.getStatus() == EventStatus.SCHEDULED) {
+                e.setScheduleVersion(e.getScheduleVersion() + 1);
+                events.save(e);
+            }
+            replan(ownerId, e.getId());
+        }
+    }
+
+    private void cancelPendingForEvent(UUID eventId) {
         for (Notification n : notifications.findByEventIdAndStatus(eventId, NotificationStatus.PENDING)) {
             n.setStatus(NotificationStatus.CANCELLED);
             notifications.save(n);
@@ -54,10 +102,7 @@ public class NotificationPlanner {
         if (e == null) {
             return;
         }
-        for (Notification n : notifications.findByEventIdAndStatus(eventId, NotificationStatus.PENDING)) {
-            n.setStatus(NotificationStatus.CANCELLED);
-            notifications.save(n);
-        }
+        cancelPendingForEvent(eventId);
 
         boolean eligible = e.getConfirmedAt() != null
                 && e.getStatus() == EventStatus.SCHEDULED
