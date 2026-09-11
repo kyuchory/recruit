@@ -89,6 +89,19 @@ public class NotificationPlanner {
         }
     }
 
+    /**
+     * Cancel an owner's still-PENDING notifications on one channel
+     * (v1.1 section 7.4: "채널 해제 즉시 관련 pending 취소").
+     */
+    @Transactional
+    public void cancelPendingChannelForOwner(UUID ownerId, NotificationChannel channel) {
+        for (Notification n : notifications.findByOwnerIdAndChannelAndStatus(
+                ownerId, channel, NotificationStatus.PENDING)) {
+            n.setStatus(NotificationStatus.CANCELLED);
+            notifications.save(n);
+        }
+    }
+
     private void cancelPendingForEvent(UUID eventId) {
         for (Notification n : notifications.findByEventIdAndStatus(eventId, NotificationStatus.PENDING)) {
             n.setStatus(NotificationStatus.CANCELLED);

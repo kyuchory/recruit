@@ -106,6 +106,14 @@ export interface InboxPage {
   totalElements: number;
 }
 
+export interface SettingsResponse {
+  email: string | null;
+  emailVerified: boolean;
+  emailEnabled: boolean;
+  timezone: string;
+  version: number;
+}
+
 export const EVENT_LABELS: Record<EventType, string> = {
   DOCUMENT_DEADLINE: "서류",
   NCS: "NCS",

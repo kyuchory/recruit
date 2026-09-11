@@ -29,15 +29,14 @@ class CsrfProtectionTest extends AbstractIntegrationTest {
         return "http://localhost:" + port + path;
     }
 
-    private static String linkBody() {
-        return "{\"url\":\"https://careers.example.com/jobs/csrf-" + System.nanoTime() + "\"}";
-    }
+    /** Deliberately invalid so a token-accepted request stops at validation (400) and persists nothing. */
+    private static final String INVALID_LINK_BODY = "{}";
 
     @Test
     void mutationWithoutTokenIsForbiddenWithErrorEnvelope() throws Exception {
         HttpResponse<String> res = http.send(HttpRequest.newBuilder(URI.create(url("/api/v1/links")))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(linkBody()))
+                .POST(HttpRequest.BodyPublishers.ofString(INVALID_LINK_BODY))
                 .build(), HttpResponse.BodyHandlers.ofString());
 
         assertThat(res.statusCode()).isEqualTo(403);
@@ -45,7 +44,7 @@ class CsrfProtectionTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void safeRequestPublishesTokenAndMutationWithItSucceeds() throws Exception {
+    void safeRequestPublishesTokenAndMutationWithItPassesCsrf() throws Exception {
         HttpResponse<String> csrf = http.send(HttpRequest.newBuilder(URI.create(url("/api/v1/auth/csrf")))
                 .GET().build(), HttpResponse.BodyHandlers.ofString());
         assertThat(csrf.statusCode()).isEqualTo(200);
@@ -60,10 +59,11 @@ class CsrfProtectionTest extends AbstractIntegrationTest {
                 .header("Content-Type", "application/json")
                 .header("X-XSRF-TOKEN", token)
                 .header("Cookie", cookiePair)
-                .POST(HttpRequest.BodyPublishers.ofString(linkBody()))
+                .POST(HttpRequest.BodyPublishers.ofString(INVALID_LINK_BODY))
                 .build(), HttpResponse.BodyHandlers.ofString());
 
+        // Token accepted -> request reaches the controller and fails validation, not CSRF.
         assertThat(res.statusCode()).isNotEqualTo(403);
-        assertThat(res.statusCode()).isBetween(200, 299);
+        assertThat(res.statusCode()).isEqualTo(400);
     }
 }

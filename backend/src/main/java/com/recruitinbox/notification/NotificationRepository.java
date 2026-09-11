@@ -17,6 +17,9 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
 
     List<Notification> findByEventIdAndStatus(UUID eventId, NotificationStatus status);
 
+    List<Notification> findByOwnerIdAndChannelAndStatus(
+            UUID ownerId, NotificationChannel channel, NotificationStatus status);
+
     List<Notification> findByEventIdAndOwnerId(UUID eventId, UUID ownerId);
 
     Page<Notification> findByOwnerIdAndChannelAndVisibleAtIsNotNullOrderByVisibleAtDescIdDesc(
