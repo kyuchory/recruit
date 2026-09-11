@@ -85,18 +85,17 @@ Frontend:
 - /app/settings
 
 Tests:
-- backend 69 tests passing
+- backend 78 tests passing
 - frontend lint/typecheck/build passing
 - Playwright happy path passing
 
 ## Current priorities
 
-1. contracts/openapi.yaml 최신화
-2. 실제 한국 채용공고 parser benchmark
-3. parser 정확도 개선
-4. 그 결과를 보고 OpenAI Text fallback 활성화
-5. 이후 Vision
-6. 실제 Google/Email/S3 provider 연결
+1. 실제 한국 채용공고 parser benchmark
+2. parser 정확도 개선
+3. 그 결과를 보고 OpenAI Text fallback 활성화
+4. 이후 Vision
+5. 실제 Email/S3 provider 연결
 
 ## Do not
 

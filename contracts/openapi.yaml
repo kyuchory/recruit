@@ -1,24 +1,29 @@
 openapi: 3.1.0
 info:
   title: 채용공고 Inbox API
-  version: 0.1.0
+  version: 0.2.0
   description: >
-    Hand-maintained snapshot of the implemented REST surface (Steps 6–16).
+    Hand-maintained snapshot of the implemented MVP REST surface.
     Model: recruit-inbox-mvp-design-v1.1.md §7. Frontend types mirror this in
     frontend/lib/types.ts. springdoc auto-generation is deferred until a
-    Spring Boot 4 compatible release ships.
+    Spring Boot 4 compatible release ships. Production uses the Google OAuth2
+    session cookie; development may use X-Dev-User-Id. Mutating requests also
+    require the X-XSRF-TOKEN header obtained from /api/v1/auth/csrf.
 servers:
   - url: http://localhost:8080
 security:
+  - sessionCookie: []
   - devUser: []
 tags:
   - name: auth
+  - name: dashboard
   - name: links
   - name: applications
   - name: events
   - name: notification-rules
   - name: notifications
   - name: uploads
+  - name: settings
 
 paths:
   /api/v1/ping:
@@ -39,12 +44,76 @@ paths:
       tags: [auth]
       summary: Current user
       responses:
-        "200": { description: user }
+        "200":
+          description: Current authenticated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurrentUser" }
         "401": { $ref: "#/components/responses/Error" }
   /api/v1/auth/csrf:
-    get: { tags: [auth], summary: CSRF token, responses: { "200": { description: token } } }
+    get:
+      tags: [auth]
+      security: []
+      summary: Issue a CSRF token cookie and return the token metadata
+      responses:
+        "200":
+          description: CSRF token; also sets the readable XSRF-TOKEN cookie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CsrfToken" }
   /api/v1/auth/logout:
-    post: { tags: [auth], summary: Invalidate session, responses: { "204": { description: no content } } }
+    post:
+      tags: [auth]
+      summary: Invalidate session
+      parameters:
+        - { $ref: "#/components/parameters/XsrfToken" }
+      responses:
+        "204": { description: Session invalidated }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /api/v1/summary:
+    get:
+      tags: [dashboard]
+      summary: Dashboard schedule and review summary
+      responses:
+        "200":
+          description: Counts and preview items resolved in the user's IANA timezone
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SummaryResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/settings:
+    get:
+      tags: [settings]
+      summary: Current notification and timezone settings
+      responses:
+        "200":
+          description: Current settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SettingsResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [settings]
+      summary: Update notification and timezone settings
+      parameters:
+        - { $ref: "#/components/parameters/XsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateSettingsRequest" }
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SettingsResponse" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /api/v1/links:
     post:
@@ -68,11 +137,13 @@ paths:
   /api/v1/links/{id}:
     get:
       tags: [links]
+      summary: Get a saved link and its related applications and latest extraction
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses: { "200": { description: link + applications + latestRun }, "404": { $ref: "#/components/responses/Error" } }
   /api/v1/extractions/{id}:
     get:
       tags: [links]
+      summary: Get an extraction run
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses:
         "200": { description: run, content: { application/json: { schema: { $ref: "#/components/schemas/ExtractionRunResponse" } } } }
@@ -81,6 +152,7 @@ paths:
   /api/v1/applications:
     get:
       tags: [applications]
+      summary: List applications
       parameters:
         - { name: status, in: query, schema: { $ref: "#/components/schemas/ApplicationStatus" } }
         - { name: page, in: query, schema: { type: integer, default: 0 } }
@@ -89,6 +161,7 @@ paths:
         "200": { description: page, content: { application/json: { schema: { $ref: "#/components/schemas/ApplicationPage" } } } }
     post:
       tags: [applications]
+      summary: Create an application for a saved link
       requestBody:
         required: true
         content:
@@ -107,10 +180,12 @@ paths:
   /api/v1/applications/{id}:
     get:
       tags: [applications]
+      summary: Get an application
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses: { "200": { description: application }, "404": { $ref: "#/components/responses/Error" } }
     patch:
       tags: [applications]
+      summary: Update an application
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -131,6 +206,7 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
     delete:
       tags: [applications]
+      summary: Delete an application
       parameters:
         - { $ref: "#/components/parameters/Id" }
         - { name: If-Match, in: header, required: true, schema: { type: string } }
@@ -138,6 +214,7 @@ paths:
   /api/v1/applications/{id}/confirm:
     post:
       tags: [applications]
+      summary: Confirm extracted application fields and selected event proposals
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -164,10 +241,12 @@ paths:
   /api/v1/applications/{id}/events:
     get:
       tags: [events]
+      summary: List events for an application
       parameters: [{ $ref: "#/components/parameters/Id" }]
       responses: { "200": { description: event list } }
     post:
       tags: [events]
+      summary: Create an event for an application
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -178,14 +257,16 @@ paths:
         "422": { $ref: "#/components/responses/Error" }
 
   /api/v1/events/{eventId}:
-    get: { tags: [events], parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: event } } }
+    get: { tags: [events], summary: Get an event, parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: event } } }
     patch:
       tags: [events]
+      summary: Update an event
       parameters: [{ $ref: "#/components/parameters/EventId" }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/EventUpdate" } } } }
       responses: { "200": { description: updated }, "409": { $ref: "#/components/responses/Error" }, "422": { $ref: "#/components/responses/Error" } }
     delete:
       tags: [events]
+      summary: Delete an event
       parameters:
         - { $ref: "#/components/parameters/EventId" }
         - { name: If-Match, in: header, required: true, schema: { type: string } }
@@ -193,14 +274,16 @@ paths:
   /api/v1/events/{eventId}/confirm:
     post:
       tags: [events]
+      summary: Confirm an event schedule and plan notifications
       parameters: [{ $ref: "#/components/parameters/EventId" }]
       requestBody:
         content: { application/json: { schema: { type: object, properties: { expectedVersion: { type: integer } } } } }
       responses: { "200": { description: confirmed + scheduled }, "409": { $ref: "#/components/responses/Error" } }
   /api/v1/events/{eventId}/notification-rules:
-    get: { tags: [notification-rules], parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: rules } } }
+    get: { tags: [notification-rules], summary: List notification rules for an event, parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: rules } } }
     post:
       tags: [notification-rules]
+      summary: Create a notification rule for an event
       parameters: [{ $ref: "#/components/parameters/EventId" }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RuleCreate" } } } }
       responses:
@@ -208,15 +291,17 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
   /api/v1/events/{eventId}/notifications:
-    get: { tags: [notifications], parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: scheduled notifications } } }
+    get: { tags: [notifications], summary: List scheduled notifications for an event, parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: scheduled notifications } } }
   /api/v1/notification-rules/{id}:
     patch:
       tags: [notification-rules]
+      summary: Update a notification rule
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/RuleUpdate" } } } }
       responses: { "200": { description: updated } }
     delete:
       tags: [notification-rules]
+      summary: Delete a notification rule
       parameters:
         - { $ref: "#/components/parameters/Id" }
         - { name: If-Match, in: header, required: true, schema: { type: string } }
@@ -225,6 +310,7 @@ paths:
   /api/v1/notifications:
     get:
       tags: [notifications]
+      summary: List in-app notifications
       parameters:
         - { name: page, in: query, schema: { type: integer, default: 0 } }
         - { name: size, in: query, schema: { type: integer, default: 30 } }
@@ -232,6 +318,7 @@ paths:
   /api/v1/notifications/{id}:
     patch:
       tags: [notifications]
+      summary: Mark an in-app notification as read or unread
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         content: { application/json: { schema: { type: object, properties: { read: { type: boolean } } } } }
@@ -240,6 +327,7 @@ paths:
   /api/v1/uploads:
     post:
       tags: [uploads]
+      summary: Create an image upload
       requestBody:
         required: true
         content:
@@ -256,6 +344,7 @@ paths:
   /api/v1/uploads/{id}/content:
     post:
       tags: [uploads]
+      summary: Upload image content to local object storage
       parameters: [{ $ref: "#/components/parameters/Id" }]
       requestBody:
         required: true
@@ -268,11 +357,12 @@ paths:
         "415": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
   /api/v1/uploads/{id}/complete:
-    post: { tags: [uploads], parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: READY } } }
+    post: { tags: [uploads], summary: Complete an upload, parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: READY } } }
   /api/v1/uploads/{id}:
-    get: { tags: [uploads], parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: asset view } } }
+    get: { tags: [uploads], summary: Get an uploaded asset, parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: asset view } } }
     delete:
       tags: [uploads]
+      summary: Delete an uploaded asset
       parameters:
         - { $ref: "#/components/parameters/Id" }
         - { name: If-Match, in: header, required: true, schema: { type: string } }
@@ -280,14 +370,25 @@ paths:
 
 components:
   securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: SESSION
+      description: Spring Session cookie established by Google OAuth2 login in production.
     devUser:
       type: apiKey
       in: header
       name: X-Dev-User-Id
-      description: Dev only. Prod uses a Spring Session cookie from Google OAuth2.
+      description: Development only; the UUID must identify an existing local user.
   parameters:
     Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
     EventId: { name: eventId, in: path, required: true, schema: { type: string, format: uuid } }
+    XsrfToken:
+      name: X-XSRF-TOKEN
+      in: header
+      required: true
+      description: Double-submit token returned by GET /api/v1/auth/csrf and the XSRF-TOKEN cookie.
+      schema: { type: string }
   responses:
     Error:
       description: Error envelope
@@ -305,6 +406,76 @@ components:
                   requestId: { type: string }
                   fields: { type: object, additionalProperties: { type: string } }
   schemas:
+    CurrentUser:
+      type: object
+      required: [id, timezone, email_enabled, state]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: [string, "null"], format: email }
+        timezone: { type: string, example: Asia/Seoul }
+        email_enabled: { type: boolean }
+        state: { type: string, enum: [ACTIVE, DELETING] }
+    CsrfToken:
+      type: object
+      required: [headerName, token]
+      properties:
+        headerName: { type: string, const: X-XSRF-TOKEN }
+        token: { type: string }
+    SummaryResponse:
+      type: object
+      required: [timezone, todayCount, today, thisWeekCount, thisWeek, needsReviewCount, needsReview]
+      properties:
+        timezone: { type: string, example: Asia/Seoul }
+        todayCount: { type: integer, format: int64, minimum: 0 }
+        today:
+          type: array
+          items: { $ref: "#/components/schemas/SummaryEventItem" }
+        thisWeekCount: { type: integer, format: int64, minimum: 0 }
+        thisWeek:
+          type: array
+          items: { $ref: "#/components/schemas/SummaryEventItem" }
+        needsReviewCount: { type: integer, format: int64, minimum: 0 }
+        needsReview:
+          type: array
+          items: { $ref: "#/components/schemas/SummaryReviewItem" }
+    SummaryEventItem:
+      type: object
+      required: [eventId, applicationId, type, scheduleKind]
+      properties:
+        eventId: { type: string, format: uuid }
+        applicationId: { type: string, format: uuid }
+        companyName: { type: [string, "null"] }
+        type: { $ref: "#/components/schemas/EventType" }
+        label: { type: [string, "null"] }
+        scheduleKind: { $ref: "#/components/schemas/ScheduleKind" }
+        scheduledAt: { type: [string, "null"], format: date-time }
+        scheduledDate: { type: [string, "null"], format: date }
+    SummaryReviewItem:
+      type: object
+      required: [applicationId]
+      properties:
+        applicationId: { type: string, format: uuid }
+        companyName: { type: [string, "null"] }
+        positionTitle: { type: [string, "null"] }
+    SettingsResponse:
+      type: object
+      required: [emailVerified, emailEnabled, timezone, version]
+      properties:
+        email: { type: [string, "null"], format: email }
+        emailVerified: { type: boolean }
+        emailEnabled: { type: boolean }
+        timezone: { type: string, example: Asia/Seoul }
+        version: { type: integer, format: int64, minimum: 0 }
+    UpdateSettingsRequest:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        timezone:
+          type: string
+          maxLength: 64
+          description: IANA timezone identifier such as Asia/Seoul.
+        emailEnabled: { type: boolean }
     ApplicationStatus:
       type: string
       enum: [INTERESTED, PLANNED, APPLIED, IN_PROGRESS, ACCEPTED, REJECTED, WITHDRAWN]
@@ -319,7 +490,7 @@ components:
       properties:
         linkId: { type: string, format: uuid }
         applicationId: { type: string, format: uuid }
-        extractionRunId: { type: string, format: uuid, nullable: true }
+        extractionRunId: { type: [string, "null"], format: uuid }
         status: { type: string }
         duplicate: { type: boolean }
     ExtractionRunResponse:
@@ -327,24 +498,24 @@ components:
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, NEEDS_INPUT, FAILED, CANCELLED] }
-        progressStage: { type: string, nullable: true }
+        progressStage: { type: [string, "null"] }
         attemptCount: { type: integer }
         result: { type: object }
         warnings: { type: array, items: {} }
-        errorCode: { type: string, nullable: true }
+        errorCode: { type: [string, "null"] }
     ApplicationResponse:
       type: object
       properties:
         id: { type: string, format: uuid }
         linkId: { type: string, format: uuid }
         positionKey: { type: string }
-        companyName: { type: string, nullable: true }
-        positionTitle: { type: string, nullable: true }
+        companyName: { type: [string, "null"] }
+        positionTitle: { type: [string, "null"] }
         status: { $ref: "#/components/schemas/ApplicationStatus" }
         reviewStatus: { type: string, enum: [PENDING, CONFIRMED, NOT_REQUIRED] }
-        appliedAt: { type: string, format: date-time, nullable: true }
+        appliedAt: { type: [string, "null"], format: date-time }
         notes: { type: string }
-        archivedAt: { type: string, format: date-time, nullable: true }
+        archivedAt: { type: [string, "null"], format: date-time }
         version: { type: integer }
         fieldMeta: { type: object }
     ApplicationPage:
@@ -387,16 +558,16 @@ components:
         id: { type: string, format: uuid }
         applicationId: { type: string, format: uuid }
         type: { $ref: "#/components/schemas/EventType" }
-        customLabel: { type: string, nullable: true }
+        customLabel: { type: [string, "null"] }
         scheduleKind: { $ref: "#/components/schemas/ScheduleKind" }
-        scheduledAt: { type: string, format: date-time, nullable: true }
-        startAt: { type: string, format: date-time, nullable: true }
-        endAt: { type: string, format: date-time, nullable: true }
-        scheduledDate: { type: string, format: date, nullable: true }
+        scheduledAt: { type: [string, "null"], format: date-time }
+        startAt: { type: [string, "null"], format: date-time }
+        endAt: { type: [string, "null"], format: date-time }
+        scheduledDate: { type: [string, "null"], format: date }
         timezone: { type: string }
         status: { $ref: "#/components/schemas/EventStatus" }
         result: { $ref: "#/components/schemas/EventResult" }
-        confirmedAt: { type: string, format: date-time, nullable: true }
+        confirmedAt: { type: [string, "null"], format: date-time }
         scheduleVersion: { type: integer }
         version: { type: integer }
     RuleCreate:
