@@ -11,10 +11,11 @@ import {
   EventType,
   LinkImportResponse,
   PageResponse,
+  SummaryResponse,
 } from "@/lib/types";
 import { Badge, Button, inputClass } from "@/components/ui";
 
-const FILTERS = ["전체", "지원예정", "진행중", "이번주 일정", "확인필요"] as const;
+const FILTERS = ["전체", "오늘 일정", "이번주 일정", "지원예정", "진행중", "확인필요"] as const;
 type Filter = (typeof FILTERS)[number];
 
 const STATUS_TONE: Record<string, string> = {
@@ -84,6 +85,11 @@ export default function DashboardPage() {
     queryFn: () => api.get<PageResponse<ApplicationResponse>>("/api/v1/applications?size=100"),
   });
 
+  const summaryQuery = useQuery({
+    queryKey: ["summary"],
+    queryFn: () => api.get<SummaryResponse>("/api/v1/summary"),
+  });
+
   const saveUrl = useMutation({
     mutationFn: (u: string) =>
       api.post<LinkImportResponse>("/api/v1/links", { url: u }, { "Idempotency-Key": crypto.randomUUID() }),
@@ -91,13 +97,23 @@ export default function DashboardPage() {
       setUrl("");
       setNotice(r.duplicate ? "이미 저장된 공고입니다." : "저장했습니다. 분석을 시작합니다.");
       qc.invalidateQueries({ queryKey: ["applications"] });
+      qc.invalidateQueries({ queryKey: ["summary"] });
     },
     onError: (e: Error) => setNotice(e.message),
   });
 
   const rows = useMemo(() => {
     const all = appsQuery.data?.items ?? [];
+    const summary = summaryQuery.data;
     switch (filter) {
+      case "오늘 일정": {
+        const ids = new Set((summary?.today ?? []).map((e) => e.applicationId));
+        return all.filter((a) => ids.has(a.id));
+      }
+      case "이번주 일정": {
+        const ids = new Set((summary?.thisWeek ?? []).map((e) => e.applicationId));
+        return all.filter((a) => ids.has(a.id));
+      }
       case "지원예정":
         return all.filter((a) => ["INTERESTED", "PLANNED"].includes(a.status));
       case "진행중":
@@ -107,7 +123,7 @@ export default function DashboardPage() {
       default:
         return all;
     }
-  }, [appsQuery.data, filter]);
+  }, [appsQuery.data, summaryQuery.data, filter]);
 
   return (
     <div>
@@ -130,7 +146,31 @@ export default function DashboardPage() {
       </form>
       {notice && <p className="mt-2 text-sm text-gray-500">{notice}</p>}
 
-      <div className="mt-5 flex gap-2 text-sm">
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {(
+          [
+            ["오늘 일정", summaryQuery.data?.todayCount, "오늘 일정" as Filter],
+            ["이번 주 일정", summaryQuery.data?.thisWeekCount, "이번주 일정" as Filter],
+            ["확인 필요", summaryQuery.data?.needsReviewCount, "확인필요" as Filter],
+          ] as const
+        ).map(([label, count, target]) => (
+          <button
+            key={label}
+            onClick={() => setFilter((f) => (f === target ? "전체" : target))}
+            className={
+              "rounded-lg border bg-white px-4 py-3 text-left transition hover:border-gray-400 " +
+              (filter === target ? "border-gray-900" : "border-gray-200")
+            }
+          >
+            <div className="text-xs text-gray-500">{label}</div>
+            <div className="mt-1 text-2xl font-semibold tabular-nums">
+              {summaryQuery.isLoading ? "–" : count ?? 0}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-2 text-sm">
         {FILTERS.map((f) => (
           <button
             key={f}

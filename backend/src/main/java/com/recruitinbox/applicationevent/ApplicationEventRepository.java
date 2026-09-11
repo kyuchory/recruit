@@ -30,6 +30,8 @@ public interface ApplicationEventRepository extends JpaRepository<ApplicationEve
     List<ApplicationEvent> findByOwnerIdAndTypeAndApplicationId(
             UUID ownerId, ApplicationEventType type, UUID applicationId);
 
+    List<ApplicationEvent> findByOwnerIdAndStatus(UUID ownerId, EventStatus status);
+
     default ApplicationEvent requireOwned(UUID id, UUID ownerId) {
         return findByIdAndOwnerId(id, ownerId)
                 .orElseThrow(() -> new IllegalArgumentException("event not found for owner"));

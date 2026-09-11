@@ -24,6 +24,13 @@ public interface ApplicationRepository extends JpaRepository<Application, UUID> 
 
     List<Application> findByOwnerIdAndLinkId(UUID ownerId, UUID linkId);
 
+    List<Application> findByOwnerId(UUID ownerId);
+
+    long countByOwnerIdAndReviewStatusAndArchivedAtIsNull(UUID ownerId, ReviewStatus reviewStatus);
+
+    List<Application> findByOwnerIdAndReviewStatusAndArchivedAtIsNullOrderByCreatedAtDescIdDesc(
+            UUID ownerId, ReviewStatus reviewStatus);
+
     /** The {@code UNIQUE(owner_id, link_id, position_key)} key. */
     Optional<Application> findByOwnerIdAndLinkIdAndPositionKey(UUID ownerId, UUID linkId, String positionKey);
 

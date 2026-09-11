@@ -106,6 +106,33 @@ export interface InboxPage {
   totalElements: number;
 }
 
+export interface SummaryEventItem {
+  eventId: string;
+  applicationId: string;
+  companyName: string | null;
+  type: EventType;
+  label: string | null;
+  scheduleKind: ScheduleKind;
+  scheduledAt: string | null;
+  scheduledDate: string | null;
+}
+
+export interface SummaryReviewItem {
+  applicationId: string;
+  companyName: string | null;
+  positionTitle: string | null;
+}
+
+export interface SummaryResponse {
+  timezone: string;
+  todayCount: number;
+  today: SummaryEventItem[];
+  thisWeekCount: number;
+  thisWeek: SummaryEventItem[];
+  needsReviewCount: number;
+  needsReview: SummaryReviewItem[];
+}
+
 export interface SettingsResponse {
   email: string | null;
   emailVerified: boolean;
