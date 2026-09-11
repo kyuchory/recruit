@@ -1,10 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { api, API_BASE_URL } from "@/lib/api";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui";
 
 export default function SettingsPage() {
+  const router = useRouter();
   const meQ = useQuery({
     queryKey: ["me"],
     queryFn: () => api.get<Record<string, unknown>>("/api/v1/me"),
@@ -38,11 +40,19 @@ export default function SettingsPage() {
         </p>
       </section>
 
-      <form action={`${API_BASE_URL}/api/v1/auth/logout`} method="post">
-        <Button type="submit" variant="danger">
-          로그아웃
-        </Button>
-      </form>
+      <Button
+        type="button"
+        variant="danger"
+        onClick={async () => {
+          try {
+            await api.post("/api/v1/auth/logout");
+          } finally {
+            router.push("/login");
+          }
+        }}
+      >
+        로그아웃
+      </Button>
     </div>
   );
 }

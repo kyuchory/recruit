@@ -1,5 +1,6 @@
 package com.recruitinbox.support;
 
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -18,6 +19,7 @@ import org.testcontainers.utility.DockerImageName;
  * {@code @AutoConfigureMockMvc} annotations; this class only supplies the
  * connection properties.
  */
+@Import(TestSecurityMockMvcConfig.class)
 public abstract class AbstractIntegrationTest {
 
     static final PostgreSQLContainer<?> POSTGRES;

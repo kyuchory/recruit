@@ -13,6 +13,35 @@ function devUserId(): string {
   }
 }
 
+const CSRF_COOKIE = "XSRF-TOKEN";
+const CSRF_HEADER = "X-XSRF-TOKEN";
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = document.cookie.match(new RegExp("(?:^|;\\s*)" + escaped + "=([^;]*)"));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/**
+ * Spring Security publishes the CSRF token in a readable `XSRF-TOKEN` cookie on
+ * any response. If we don't have it yet (first mutation of the session), prime
+ * it with a safe GET before returning.
+ */
+async function csrfToken(): Promise<string | null> {
+  if (typeof document === "undefined") return null;
+  let token = readCookie(CSRF_COOKIE);
+  if (!token) {
+    try {
+      await fetch(`${API_BASE_URL}/api/v1/auth/csrf`, { credentials: "include", cache: "no-store" });
+      token = readCookie(CSRF_COOKIE);
+    } catch {
+      /* offline: let the actual request surface the failure */
+    }
+  }
+  return token;
+}
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -26,12 +55,15 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
+  const mutating = method !== "GET" && method !== "HEAD";
+  const csrf = mutating ? await csrfToken() : null;
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers: {
       Accept: "application/json",
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       "X-Dev-User-Id": devUserId(),
+      ...(csrf ? { [CSRF_HEADER]: csrf } : {}),
       ...headers,
     },
     credentials: "include",
