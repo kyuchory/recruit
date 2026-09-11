@@ -29,6 +29,10 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public class RestAuthErrorHandler implements AuthenticationEntryPoint, AccessDeniedHandler {
 
+    /** Shared with {@link com.recruitinbox.common.error.GlobalExceptionHandler} so the two paths never drift. */
+    public static final String UNAUTHENTICATED_MESSAGE = "authentication required";
+    public static final String FORBIDDEN_MESSAGE = "not permitted";
+
     private final ObjectMapper mapper;
 
     public RestAuthErrorHandler(ObjectMapper mapper) {
@@ -38,13 +42,13 @@ public class RestAuthErrorHandler implements AuthenticationEntryPoint, AccessDen
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
             AuthenticationException authException) throws IOException {
-        write(response, ErrorCode.UNAUTHENTICATED, "authentication required");
+        write(response, ErrorCode.UNAUTHENTICATED, UNAUTHENTICATED_MESSAGE);
     }
 
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
             AccessDeniedException accessDeniedException) throws IOException {
-        write(response, ErrorCode.FORBIDDEN, "not permitted");
+        write(response, ErrorCode.FORBIDDEN, FORBIDDEN_MESSAGE);
     }
 
     private void write(HttpServletResponse response, ErrorCode code, String message) throws IOException {

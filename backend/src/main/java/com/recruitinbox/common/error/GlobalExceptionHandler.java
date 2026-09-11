@@ -10,6 +10,7 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -18,6 +19,7 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import com.recruitinbox.common.web.RequestId;
+import com.recruitinbox.common.web.RestAuthErrorHandler;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -67,9 +69,19 @@ public class GlobalExceptionHandler {
         return build(ErrorCode.INVALID_PAYLOAD, "request violates a data constraint", Map.of());
     }
 
+    /**
+     * Not authenticated (bubbled from a filter/controller rather than the
+     * security entry point). Other-owner resources are 404 by contract
+     * (design v1.1 section 7.4), so this stays a clean 401.
+     */
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex) {
+        return build(ErrorCode.UNAUTHENTICATED, RestAuthErrorHandler.UNAUTHENTICATED_MESSAGE, Map.of());
+    }
+
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
-        return build(ErrorCode.FORBIDDEN, "not permitted", Map.of());
+        return build(ErrorCode.FORBIDDEN, RestAuthErrorHandler.FORBIDDEN_MESSAGE, Map.of());
     }
 
     @ExceptionHandler(Exception.class)
