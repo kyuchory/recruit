@@ -367,19 +367,25 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
           ))}
         </ul>
       )}
-      {(notificationsQ.data ?? []).length > 0 && (
+      {(rulesQ.data ?? []).length > 0 && notificationsQ.data && (
         <div className="mt-2 border-t border-gray-100 pt-2">
           <span className="text-xs text-gray-400">예약된 알림</span>
-          <ul className="mt-1 text-xs text-gray-500">
-            {notificationsQ.data!.map((n) => (
-              <li key={n.id} className="flex items-center gap-1.5">
-                · {new Date(n.scheduledSendAt).toLocaleString("ko-KR")}
-                <Badge tone={n.deliveryStatus === "CANCELLED" || n.deliveryStatus === "FAILED" ? "gray" : "blue"}>
-                  {NOTIFICATION_STATUS_LABELS[n.deliveryStatus]}
-                </Badge>
-              </li>
-            ))}
-          </ul>
+          {notificationsQ.data.length === 0 ? (
+            <p className="mt-1 text-xs text-gray-400">
+              없음 (일정이 이미 지났거나, 발송 시각이 아직 계산되지 않았습니다)
+            </p>
+          ) : (
+            <ul className="mt-1 text-xs text-gray-500">
+              {notificationsQ.data.map((n) => (
+                <li key={n.id} className="flex items-center gap-1.5">
+                  · {new Date(n.scheduledSendAt).toLocaleString("ko-KR")}
+                  <Badge tone={n.deliveryStatus === "CANCELLED" || n.deliveryStatus === "FAILED" ? "gray" : "blue"}>
+                    {NOTIFICATION_STATUS_LABELS[n.deliveryStatus]}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>
