@@ -29,3 +29,6 @@ frontend/playwright/.cache/
 
 # Logs
 *.log
+
+# MD
+AGENTS.md
