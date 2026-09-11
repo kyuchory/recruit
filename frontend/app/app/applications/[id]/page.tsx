@@ -2,6 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
@@ -111,9 +112,11 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
 }
 
 function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved: () => void }) {
+  const router = useRouter();
   const [company, setCompany] = useState(app.companyName ?? "");
   const [position, setPosition] = useState(app.positionTitle ?? "");
   const [status, setStatus] = useState(app.status);
+  const [archived, setArchived] = useState(!!app.archivedAt);
   const [notice, setNotice] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
   const save = useMutation({
     mutationFn: () =>
@@ -122,11 +125,17 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
         companyName: company,
         positionTitle: position,
         status,
+        archived,
       }),
     onSuccess: () => {
       onSaved();
       setNotice({ text: "저장했습니다.", tone: "ok" });
     },
+    onError: (e: Error) => setNotice({ text: e.message, tone: "error" }),
+  });
+  const del = useMutation({
+    mutationFn: () => api.del(`/api/v1/applications/${app.id}`, app.version),
+    onSuccess: () => router.push("/app"),
     onError: (e: Error) => setNotice({ text: e.message, tone: "error" }),
   });
   return (
@@ -150,6 +159,10 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
           </select>
         </Field>
       </div>
+      <label className="mt-3 flex items-center gap-2 text-sm text-gray-600">
+        <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
+        보관 (보관하면 이 지원의 모든 미발송 알림이 즉시 취소됩니다)
+      </label>
       <div className="mt-3 flex items-center gap-2">
         <Button
           onClick={() => {
@@ -159,6 +172,17 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
           disabled={save.isPending}
         >
           저장
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() => {
+            if (window.confirm("이 지원 건을 완전히 삭제할까요? 되돌릴 수 없습니다 (연결된 URL은 유지됩니다).")) {
+              del.mutate();
+            }
+          }}
+          disabled={del.isPending}
+        >
+          지원 삭제
         </Button>
         {notice && (
           <span className={"text-xs " + (notice.tone === "ok" ? "text-green-600" : "text-red-600")}>
@@ -305,6 +329,17 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
       qc.invalidateQueries({ queryKey: ["event-notifications", event.id] });
     },
   });
+  const deleteRule = useMutation({
+    mutationFn: (rule: RuleResponse) => api.del(`/api/v1/notification-rules/${rule.id}`, rule.version),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rules", event.id] });
+      qc.invalidateQueries({ queryKey: ["event-notifications", event.id] });
+    },
+  });
+  const deleteEvent = useMutation({
+    mutationFn: () => api.del(`/api/v1/events/${event.id}`, event.version),
+    onSuccess: onChanged,
+  });
 
   const label = event.customLabel ?? EVENT_LABELS[event.type];
   const when =
@@ -321,11 +356,24 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
           <span className="font-medium">{label}</span>
           <span className="ml-2 text-gray-500">{when}</span>
         </div>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
           <Badge tone={event.status === "SCHEDULED" ? "blue" : "gray"}>{EVENT_STATUS_LABELS[event.status]}</Badge>
           <Badge tone={event.result === "PASSED" ? "green" : event.result === "FAILED" ? "red" : "gray"}>
             {EVENT_RESULT_LABELS[event.result]}
           </Badge>
+          <button
+            type="button"
+            title="이 전형 삭제"
+            className="ml-1 text-gray-300 hover:text-red-600"
+            onClick={() => {
+              if (window.confirm(`"${label}" 전형을 삭제할까요? 예약된 알림도 함께 취소됩니다.`)) {
+                deleteEvent.mutate();
+              }
+            }}
+            disabled={deleteEvent.isPending}
+          >
+            ✕
+          </button>
         </div>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -360,9 +408,18 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
       {(rulesQ.data ?? []).length > 0 && (
         <ul className="mt-2 text-xs text-gray-500">
           {rulesQ.data!.map((r) => (
-            <li key={r.id}>
+            <li key={r.id} className="flex items-center gap-1.5">
               · {NOTIFICATION_CHANNEL_LABELS[r.channel]} /{" "}
               {r.mode === "BEFORE_MINUTES" ? `${r.offsetMinutes}분 전` : `${r.offsetDays}일 전 ${r.localTime}`}
+              <button
+                type="button"
+                title="이 알림 규칙 삭제"
+                className="text-gray-300 hover:text-red-600"
+                onClick={() => deleteRule.mutate(r)}
+                disabled={deleteRule.isPending}
+              >
+                ✕
+              </button>
             </li>
           ))}
         </ul>
