@@ -20,6 +20,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+
 import com.recruitinbox.application.Application;
 import com.recruitinbox.application.ApplicationRepository;
 import com.recruitinbox.link.Link;
@@ -44,6 +47,10 @@ class NotificationFlowTest extends com.recruitinbox.support.AbstractIntegrationT
     NotificationRepository notifications;
     @Autowired
     NotificationDispatcher dispatcher;
+    @Autowired
+    NotificationClaimDao claimDao;
+    @PersistenceContext
+    EntityManager entityManager;
 
     private UUID owner;
     private UUID eventId;
@@ -165,9 +172,10 @@ class NotificationFlowTest extends com.recruitinbox.support.AbstractIntegrationT
         notifications.saveAll(pendingNow);
         notifications.flush();
 
-        Instant now = Instant.now();
-        notifications.findByEventIdAndOwnerId(eventId, owner)
-                .forEach(n -> dispatcher.dispatchOne(n, now));
+        var claimed = claimDao.claimDue(10, 120);
+        entityManager.clear();
+        claimed.forEach(c -> dispatcher.processClaimed(c.id(), c.leaseToken()));
+        entityManager.clear();
 
         var all = notifications.findByEventIdAndOwnerId(eventId, owner);
         org.assertj.core.api.Assertions.assertThat(all).allSatisfy(n ->

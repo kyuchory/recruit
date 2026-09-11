@@ -1,6 +1,5 @@
 package com.recruitinbox.notification;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,6 +27,4 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     long countByOwnerIdAndChannelAndVisibleAtIsNotNullAndReadAtIsNull(
             UUID ownerId, NotificationChannel channel);
 
-    List<Notification> findByStatusAndScheduledSendAtLessThanEqualAndNextAttemptAtLessThanEqual(
-            NotificationStatus status, Instant sendCutoff, Instant attemptCutoff);
 }

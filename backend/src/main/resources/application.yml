@@ -103,4 +103,9 @@ storage:
 notifications:
   enabled: ${NOTIFICATIONS_ENABLED:true}
   dispatch-interval-ms: 15000
+  batch-size: 100
+  lease-seconds: 120
+  lease-recovery-ms: 15000
+  lease-recovery-backoff-seconds: 30
+  retry-backoff-seconds: 300
 
