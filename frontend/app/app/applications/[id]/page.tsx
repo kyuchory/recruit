@@ -23,6 +23,7 @@ import {
   ScheduleKind,
 } from "@/lib/types";
 import { Badge, Button, Field, inputClass } from "@/components/ui";
+import { useConfirm } from "@/components/confirm-dialog";
 
 const EVENT_TYPES: EventType[] = [
   "DOCUMENT_DEADLINE", "NCS", "CODING_TEST", "AI_ASSESSMENT",
@@ -69,8 +70,8 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <Link href="/app" className="text-sm text-blue-600 hover:underline">← 지원현황</Link>
-        <Link href={`/app/applications/${id}/essays`} className="text-sm text-blue-600 hover:underline">자기소개서 작성 →</Link>
+        <Link href="/app" className="text-sm text-brand hover:underline">← 지원현황</Link>
+        <Link href={`/app/applications/${id}/essays`} className="text-sm text-brand hover:underline">자기소개서 작성 →</Link>
       </div>
 
       <ApplicationHeader app={app} onSaved={invalidate} />
@@ -113,6 +114,7 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
 
 function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved: () => void }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [company, setCompany] = useState(app.companyName ?? "");
   const [position, setPosition] = useState(app.positionTitle ?? "");
   const [sourceUrl, setSourceUrl] = useState(app.sourceUrl ?? "");
@@ -165,7 +167,7 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
               href={app.sourceUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-1 inline-block text-xs text-blue-600 hover:underline"
+              className="mt-1 inline-block text-xs text-brand hover:underline"
             >
               현재 공고 새 탭에서 열기 ↗
             </a>
@@ -189,6 +191,7 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
       </label>
       <div className="mt-3 flex items-center gap-2">
         <Button
+          variant="brand"
           onClick={() => {
             setNotice(null);
             save.mutate();
@@ -199,8 +202,14 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
         </Button>
         <Button
           variant="danger"
-          onClick={() => {
-            if (window.confirm("이 지원 건을 완전히 삭제할까요? 되돌릴 수 없습니다 (연결된 URL은 유지됩니다).")) {
+          onClick={async () => {
+            if (
+              await confirm({
+                message: "이 지원 건을 완전히 삭제할까요? 되돌릴 수 없습니다 (연결된 URL은 유지됩니다).",
+                tone: "danger",
+                confirmLabel: "삭제",
+              })
+            ) {
               del.mutate();
             }
           }}
@@ -256,7 +265,7 @@ function ConfirmPanel({
         <input value={c} onChange={(e) => setC(e.target.value)} className={inputClass} placeholder="회사명" />
         <input value={p} onChange={(e) => setP(e.target.value)} className={inputClass} placeholder="직무" />
       </div>
-      <Button className="mt-2" onClick={() => confirm.mutate()} disabled={confirm.isPending}>
+      <Button variant="brand" className="mt-2" onClick={() => confirm.mutate()} disabled={confirm.isPending}>
         확정
       </Button>
     </div>
@@ -309,7 +318,7 @@ function AddEvent({ appId, onAdded }: { appId: string; onAdded: () => void }) {
             className={inputClass}
           />
         </Field>
-        <Button onClick={() => add.mutate()} disabled={add.isPending}>
+        <Button variant="brand" onClick={() => add.mutate()} disabled={add.isPending}>
           이벤트 추가
         </Button>
       </div>
@@ -320,6 +329,7 @@ function AddEvent({ appId, onAdded }: { appId: string; onAdded: () => void }) {
 
 function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () => void }) {
   const qc = useQueryClient();
+  const confirmDialog = useConfirm();
   const [editing, setEditing] = useState(false);
   const [scheduleKind, setScheduleKind] = useState<ScheduleKind>(event.scheduleKind);
   const [scheduledAt, setScheduledAt] = useState(toDateTimeLocal(event.scheduledAt ?? event.startAt));
@@ -429,7 +439,7 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
           </Badge>
           <button
             type="button"
-            className="ml-1 rounded px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+            className="ml-1 rounded px-1.5 py-0.5 text-xs text-gray-500 hover:bg-brand-light hover:text-brand-dark"
             onClick={() => {
               setScheduleKind(event.scheduleKind);
               setScheduledAt(toDateTimeLocal(event.scheduledAt ?? event.startAt));
@@ -445,8 +455,14 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
             type="button"
             title="이 전형 삭제"
             className="ml-1 text-gray-300 hover:text-red-600"
-            onClick={() => {
-              if (window.confirm(`"${label}" 전형을 삭제할까요? 예약된 알림도 함께 취소됩니다.`)) {
+            onClick={async () => {
+              if (
+                await confirmDialog({
+                  message: `"${label}" 전형을 삭제할까요? 예약된 알림도 함께 취소됩니다.`,
+                  tone: "danger",
+                  confirmLabel: "삭제",
+                })
+              ) {
                 deleteEvent.mutate();
               }
             }}
@@ -492,7 +508,7 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
                 />
               </Field>
             )}
-            <Button onClick={() => updateSchedule.mutate()} disabled={updateSchedule.isPending}>
+            <Button variant="brand" onClick={() => updateSchedule.mutate()} disabled={updateSchedule.isPending}>
               {updateSchedule.isPending ? "저장 중…" : "저장"}
             </Button>
             <Button variant="ghost" onClick={() => setEditing(false)} disabled={updateSchedule.isPending}>
@@ -509,7 +525,7 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
       )}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {(event.scheduleKind === "EXACT" || event.scheduleKind === "DATE_ONLY") && !event.confirmedAt && (
-          <Button variant="ghost" onClick={() => confirm.mutate()} disabled={confirm.isPending}>
+          <Button variant="brand" onClick={() => confirm.mutate()} disabled={confirm.isPending}>
             이 일정으로 확인
           </Button>
         )}

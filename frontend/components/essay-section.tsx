@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { EssayLimitType, EssayQuestionResponse, EssayRevisionResponse, EssayStatus } from "@/lib/types";
 import { Badge, Button, Field, inputClass } from "@/components/ui";
+import { useConfirm } from "@/components/confirm-dialog";
 
 const LIMIT_LABELS: Record<EssayLimitType, string> = {
   NONE: "제한 없음",
@@ -100,7 +101,7 @@ export function EssaySection({ applicationId }: { applicationId: string }) {
             )}
           </div>
           <div className="mt-3 flex items-center gap-2">
-            <Button onClick={() => create.mutate()} disabled={create.isPending || !questionText.trim() || (limitType !== "NONE" && Number(limitValue) < 1)}>
+            <Button variant="brand" onClick={() => create.mutate()} disabled={create.isPending || !questionText.trim() || (limitType !== "NONE" && Number(limitValue) < 1)}>
               {create.isPending ? "추가 중…" : `${(questions.data?.length ?? 0) + 1}번 문항 추가`}
             </Button>
             {create.isError && <span className="text-xs text-red-600">{create.error.message}</span>}
@@ -129,6 +130,7 @@ function EssayQuestionCard({ number, question, onChanged }: {
   onChanged: () => void;
 }) {
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
   const [questionText, setQuestionText] = useState(question.questionText);
   const [answerText, setAnswerText] = useState(question.answerText);
   const [limitType, setLimitType] = useState<EssayLimitType>(question.limitType);
@@ -217,7 +219,11 @@ function EssayQuestionCard({ number, question, onChanged }: {
         <button
           type="button"
           className="text-xs text-gray-400 hover:text-red-600"
-          onClick={() => window.confirm(`${number}번 문항과 모든 이력을 삭제할까요?`) && remove.mutate()}
+          onClick={async () => {
+            if (await confirm({ message: `${number}번 문항과 모든 이력을 삭제할까요?`, tone: "danger", confirmLabel: "삭제" })) {
+              remove.mutate();
+            }
+          }}
         >삭제</button>
       </div>
 
@@ -241,7 +247,7 @@ function EssayQuestionCard({ number, question, onChanged }: {
       />
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
         {limit !== null && limit > 0 && (
-          <span className={overLimit ? "font-semibold text-red-600" : "font-semibold text-blue-600"}>
+          <span className={overLimit ? "font-semibold text-red-600" : "font-semibold text-brand"}>
             {LIMIT_LABELS[limitType]} {used.toLocaleString()} / {limit.toLocaleString()}{overLimit ? ` · ${used - limit} 초과` : ""}
           </span>
         )}
@@ -252,7 +258,7 @@ function EssayQuestionCard({ number, question, onChanged }: {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button onClick={() => save.mutate()} disabled={save.isPending || !dirty || !questionText.trim() || (limitType !== "NONE" && (!limit || limit < 1))}>
+        <Button variant="brand" onClick={() => save.mutate()} disabled={save.isPending || !dirty || !questionText.trim() || (limitType !== "NONE" && (!limit || limit < 1))}>
           {save.isPending ? "저장 중…" : "초안 저장"}
         </Button>
         <label className="flex items-center gap-1.5 text-sm text-gray-600">
@@ -263,7 +269,7 @@ function EssayQuestionCard({ number, question, onChanged }: {
         <Button variant="ghost" onClick={() => snapshot.mutate()} disabled={snapshot.isPending || !questionText.trim() || (limitType !== "NONE" && (!limit || limit < 1))}>
           {snapshot.isPending ? "저장 중…" : "현재 내용 버전 저장"}
         </Button>
-        <button type="button" onClick={() => setHistoryOpen((value) => !value)} className="text-sm text-blue-600 hover:underline">
+        <button type="button" onClick={() => setHistoryOpen((value) => !value)} className="text-sm text-brand hover:underline">
           이력 {question.revisionCount}개 {historyOpen ? "접기" : "보기"}
         </button>
       </div>
@@ -284,8 +290,10 @@ function EssayQuestionCard({ number, question, onChanged }: {
                 <span>공백 포함 {revision.characterCount}자 · UTF-8 {revision.utf8ByteCount} bytes</span>
                 <button
                   type="button"
-                  className="text-blue-600 hover:underline"
-                  onClick={() => window.confirm("이 버전의 답변을 현재 초안으로 복원할까요?") && restore.mutate(revision.id)}
+                  className="text-brand hover:underline"
+                  onClick={async () => {
+                    if (await confirm("이 버전의 답변을 현재 초안으로 복원할까요?")) restore.mutate(revision.id);
+                  }}
                 >답변 복원</button>
               </div>
             </details>

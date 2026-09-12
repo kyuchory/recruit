@@ -20,7 +20,7 @@ export default function ApplicationEssaysPage({ params }: { params: Promise<{ id
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link href={`/app/applications/${id}`} className="text-sm text-blue-600 hover:underline">← 전형 관리</Link>
+        <Link href={`/app/applications/${id}`} className="text-sm text-brand hover:underline">← 전형 관리</Link>
         <Link href="/app" className="text-sm text-gray-500 hover:underline">지원현황</Link>
       </div>
       <header className="rounded-lg border border-gray-200 bg-white p-4">
