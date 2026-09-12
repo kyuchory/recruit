@@ -85,17 +85,21 @@ Backend:
 - application essay question/revision CRUD and owner-scoped progress aggregation
 
 Frontend:
+- 공통 디자인 시스템: 로고, 대표 브랜드 컬러(`--brand` 등 CSS 변수 4개, `app/globals.css`), Pretendard 폰트, `lg`(1024px) 미만은 반응형, 그 이상은 고정 폭(1152px) 레이아웃(창을 좁혀도 컬럼이 눌리지 않고 필요 시 가로 스크롤)
+- 공용 컴포넌트: `useConfirm()` 확인 모달(`components/confirm-dialog.tsx`, 브라우저 기본 confirm 대체), 범용 `Modal`(`components/modal.tsx`), `AppNav`(활성 탭 표시)
 - /login
-- /app (URL 열은 숨김, 회사·직무에서 원본 공고 새 탭 열기, 관리 열의 수정 링크)
+- / (공개 랜딩: 로고 헤더, URL 접수 폼, 기능 배너 2종)
+- /app (URL 열은 숨김, 회사·직무에서 원본 공고 새 탭 열기, 관리 열의 수정 링크, 지원 상태/전형 일정을 표에서 바로 인라인 수정, 리스트/캘린더 뷰 전환, 직접 등록은 모달)
+- /app/jobs (채용공고 목록·채용달력 — 사람인 API 응답 스키마와 동일한 구조의 목데이터 120건, 실제 API 연동 전 화면 검증용. `lib/saramin-mock-data.ts`→`lib/job-postings.ts`(정규화)→화면 이 순서로 의존하며 실제 연동 시 `saramin-mock-data.ts`만 교체하면 됨. 상세 모달의 주요업무/자격요건/우대사항/복지 등은 사람인 API가 주지 않는 필드라 `lib/job-posting-content.ts`에 별도 템플릿으로 분리. "내 리스트에 추가"는 실제 `POST /api/v1/applications/manual` 호출)
 - /app/applications/[id] (지원 정보·원본 URL 수정 및 전형 타임라인 관리)
 - /app/applications/[id]/essays (지원별 자기소개서 문항·답변·버전 이력)
 - /app/notifications
 - /app/settings
-- /app/profile (전체 이력서 기본 보기, 분류 목차 스크롤, 개인 지원정보 보관·검색·복사)
+- /app/profile (전체 이력서 기본 보기, 분류 목차 스크롤 + 스크롤 위치 기반 자동 탭 전환, 개인 지원정보 보관·검색·복사)
 
 Tests:
-- backend 99 tests passing (2026-09-12 전체 실행)
-- frontend lint/typecheck/build passing
+- backend 99 tests passing (2026-09-12 전체 실행, 오늘 백엔드 코드 변경 없어 재실행 생략)
+- frontend lint/typecheck/build passing (2026-09-13)
 - Playwright happy path passing
 
 ## Resume checkpoint
@@ -106,8 +110,20 @@ Tests:
 2. REST 변경 전 `contracts/openapi.yaml`과 `docs/API_REFERENCE.md`를 함께 갱신한다.
 3. DB 변경은 기존 migration 수정이 아니라 새 Flyway migration으로 추가하고 `docs/DATABASE_SCHEMA.md`의 migration history와 테이블 명세를 갱신한다.
 4. 개발 환경은 고정 profile 암호화 키를 쓰지만 운영은 별도 `PROFILE_ENCRYPTION_KEY`가 없으면 기동하지 않는다. 실제 키는 문서·소스·예제 env에 기록하지 않는다.
-5. 사람인 API는 아직 키가 없어 미연동 상태다. live 연동 전 access key, 응답 형태, 쿼터·오류 정책을 검증한다.
-6. 완료 전 백엔드 test/build와 프론트 lint/typecheck/build를 모두 실행한다.
+5. 사람인 API access key는 발급받았으나 실제 연동은 아직이다. `/app/jobs`는 동일 스키마의 목데이터로 화면만 먼저 구현했고, live 연동 전 응답 형태·쿼터·오류 정책을 재검증한다.
+6. Kakao는 REST API 키·Client Secret을 로컬 `.env`에 넣고 `SPRING_PROFILES_ACTIVE=prod,kakao`로 OIDC discovery까지 확인했다(별도 포트 인스턴스로 검증, 상시 구동 중인 개발 서버는 미교체). 다음 작업자는 메인 개발 서버를 이 프로필로 재기동해 실제 로그인 왕복까지 검증한다. 실제 키 값은 `.env`(gitignore)에만 있고 문서·커밋에는 없다.
+7. 완료 전 백엔드 test/build와 프론트 lint/typecheck/build를 모두 실행한다.
+
+## Recent changes (2026-09-13)
+
+- 프론트엔드 공통 디자인 시스템을 도입했다: 로고(`public/logo.png`), 대표 브랜드 컬러를 `app/globals.css`의 CSS 변수 4개(`--brand`/`--brand-dark`/`--brand-light`/`--brand-foreground`)로 상수화, Pretendard 폰트, `Button`에 `variant="brand"` 추가. 전 페이지(랜딩/로그인/대시보드/프로필/알림함/설정/지원상세/자소서)에 일괄 적용했다.
+- `/app/**` 공통 레이아웃 헤더를 로고+활성 탭 표시 네비게이션(`components/app-nav.tsx`)으로 교체했다. 헤더와 본문 컨테이너는 `lg`(1024px) 미만에서만 반응형으로 줄어들고, 그 이상에서는 1152px 고정 폭이라 창을 좁혀도 컬럼이 눌리지 않고 필요 시 페이지가 가로 스크롤된다.
+- 브라우저 기본 `window.confirm()`을 전부 커스텀 확인 모달(`useConfirm()`, `components/confirm-dialog.tsx`)로 교체했다. 범용 `Modal`(`components/modal.tsx`)도 추가해 대시보드 "직접 등록" 폼을 인라인 확장 대신 모달로 전환했다.
+- 대시보드(`/app`): 상태 배지를 인라인 드롭다운으로, 전형 일정 칸을 클릭하면 그 자리에서 날짜/시간을 만들거나 수정할 수 있게 했다(값이 없으면 생성 POST, 있으면 수정 PATCH). 리스트/캘린더 뷰 토글과 월간 캘린더(`components/schedule-calendar.tsx`, 이벤트를 날짜별로 표시)를 추가했다. 요약 3칸과 필터 칩의 중복 정보를 필터 칩에 개수 배지를 붙이는 방식으로 통합해 압축했다.
+- `/app/profile` 스크롤스파이를 추가해 수동 클릭 없이 스크롤 위치에 따라 분류 탭이 자동 전환되도록 했다. 이 과정에서 발견한, 이 페이지의 sticky 탭바가 상단 공통 헤더를 가리던 버그도 함께 고쳤다.
+- **`/app/jobs`(채용공고) 신규**: 사람인 `/job-search` 응답과 동일한 필드 구조의 목데이터 120건(`lib/saramin-mock-data.ts`) → 정규화 계층(`lib/job-postings.ts`) → 화면 순으로 의존하게 만들어, 실제 연동 시 목데이터 파일만 교체하면 되게 했다. 상세 필터(채용형태/기업형태/직무/지역/마감제외/검색), 리스트+페이지네이션, 채용달력(`components/job-calendar.tsx`, 마감일 기준) 뷰 전환을 제공한다. 사람인 API가 주지 않는 상세 콘텐츠(주요업무/자격요건/우대사항/복지, 조회·스크랩수)는 별도 템플릿 레이어(`lib/job-posting-content.ts`)로 분리했다. "내 리스트에 추가"는 실제 `POST /api/v1/applications/manual`을 호출해 개인 지원 리스트(Application)로 편입한다 — 이 목데이터는 개인 지원 리스트와 완전히 분리된 별도 데이터이며 섞이지 않는다.
+- 헤더 네비게이션에 "채용공고" 탭을 추가했다.
+- 백엔드/DB/REST 계약 변경 없음 — 오늘 작업은 전부 프론트엔드였다.
 
 ## Recent changes (2026-09-12)
 
@@ -140,11 +156,11 @@ Tests:
 
 ## Current priorities
 
-1. 사람인 채용공고 API access key 발급 후 live adapter·채용 달력/소식·INBOX 추가 흐름 구현
+1. 사람인 access key로 실제 `/job-search` 연동 — `lib/saramin-mock-data.ts`를 실제 API 호출로 교체하고 `/app/jobs`를 그 위에서 재검증 (목데이터 기반 화면은 완성)
 2. 실제 한국 채용공고 parser benchmark와 정확도 개선
 3. parser 결과를 바탕으로 OpenAI Text fallback 활성화, 이후 Vision 검토
-4. Kakao 운영 자격증명 발급 후 실제 OIDC 로그인 검증
-5. 실제 Email/S3 provider 연결
+4. 메인 개발 서버를 `prod,kakao` 프로필로 재기동해 Kakao 실제 로그인 왕복 검증 (자격증명 확보·OIDC discovery 검증까지는 완료)
+5. 실제 Email/S3 provider 연결 — 알림 인프라는 이미 있으나 발송 채널이 로그 스텁이라 현재 사용자에게 실제 알림이 가지 않음
 
 ## Do not
 
