@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,6 +20,8 @@ import {
   SummaryResponse,
 } from "@/lib/types";
 import { Badge, Button, inputClass } from "@/components/ui";
+import { ScheduleCalendar } from "@/components/schedule-calendar";
+import { Modal } from "@/components/modal";
 
 const FILTERS = ["전체", "오늘 일정", "이번주 일정", "지원예정", "진행중", "확인필요"] as const;
 type Filter = (typeof FILTERS)[number];
@@ -43,6 +46,13 @@ const COLUMN_TYPES: EventType[] = [
   "INTERVIEW_1",
   "INTERVIEW_2",
 ];
+
+// The registration/app-install banners moved to the "/" landing page; the
+// dashboard keeps only the two feature banners relevant once you're inside the app.
+const PROMO_BANNERS = [
+  { src: "/promo/career-prep.png", alt: "지금 당신의 커리어를 준비하세요" },
+  { src: "/promo/calendar.png", alt: "지원 일정을 캘린더로 확인하세요" },
+] as const;
 
 const SORT_LABELS: Record<ScheduleSort, string> = {
   UPDATED: "최근 수정순",
@@ -94,42 +104,166 @@ function dDay(event: EventResponse): { label: string; className: string } | null
   return { label, className };
 }
 
-function EventCells({ events }: { events: EventResponse[] }) {
-  const byType = useMemo(() => {
-    const m = new Map<EventType, EventResponse[]>();
-    events.forEach((e) => {
-      const arr = m.get(e.type) ?? [];
-      arr.push(e);
-      m.set(e.type, arr);
-    });
-    return m;
-  }, [events]);
+function toDateTimeLocal(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
+const STATUS_SELECT_CLASS: Record<string, string> = {
+  gray: "bg-gray-100 text-gray-700",
+  green: "bg-green-100 text-green-800",
+  blue: "bg-blue-100 text-blue-800",
+  amber: "bg-amber-100 text-amber-800",
+  red: "bg-red-100 text-red-800",
+};
+
+function StatusCell({ application, onChanged }: { application: ApplicationResponse; onChanged: () => void }) {
+  const update = useMutation({
+    mutationFn: (status: ApplicationStatus) =>
+      api.patch(`/api/v1/applications/${application.id}`, { expectedVersion: application.version, status }),
+    onSuccess: onChanged,
+  });
   return (
-    <>
-      {COLUMN_TYPES.map((t) => {
-        const list = byType.get(t) ?? [];
-        if (list.length === 0) return <td key={t} className="px-2 py-2 text-center text-gray-300">-</td>;
-        const next = [...list]
-          .filter((event) => !["COMPLETED", "CANCELLED"].includes(event.status))
-          .sort((left, right) => (eventTime(left) ?? Number.MAX_SAFE_INTEGER) - (eventTime(right) ?? Number.MAX_SAFE_INTEGER))[0]
-          ?? list[0];
-        const remaining = ["COMPLETED", "CANCELLED"].includes(next.status) ? null : dDay(next);
-        return (
-          <td key={t} className="px-2 py-2 text-center text-xs">
-            {fmt(next.scheduledAt ?? next.startAt, next.scheduledDate)}
-            {remaining && <span className={`ml-1 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${remaining.className}`}>{remaining.label}</span>}
-            {list.length > 1 && <span className="ml-1 text-gray-400">+{list.length - 1}</span>}
-          </td>
-        );
-      })}
-    </>
+    <td className="px-3 py-2">
+      <select
+        value={application.status}
+        onChange={(event) => update.mutate(event.target.value as ApplicationStatus)}
+        disabled={update.isPending}
+        className={`rounded border-0 px-1.5 py-0.5 text-xs font-medium ${STATUS_SELECT_CLASS[STATUS_TONE[application.status]]}`}
+      >
+        {Object.entries(APPLICATION_STATUS_LABELS).map(([value, label]) => (
+          <option key={value} value={value}>{label}</option>
+        ))}
+      </select>
+      {application.reviewStatus === "PENDING" && (
+        <span className="ml-1">
+          <Badge tone="amber">확인필요</Badge>
+        </span>
+      )}
+      {update.isError && <div className="mt-0.5 text-[10px] text-red-600">{(update.error as Error).message}</div>}
+    </td>
+  );
+}
+
+function EventCell({
+  applicationId,
+  type,
+  events,
+  onChanged,
+}: {
+  applicationId: string;
+  type: EventType;
+  events: EventResponse[];
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+
+  const matching = useMemo(() => events.filter((event) => event.type === type), [events, type]);
+  const next = useMemo(() => {
+    const upcoming = [...matching]
+      .filter((event) => !["COMPLETED", "CANCELLED"].includes(event.status))
+      .sort((left, right) => (eventTime(left) ?? Number.MAX_SAFE_INTEGER) - (eventTime(right) ?? Number.MAX_SAFE_INTEGER));
+    return upcoming[0] ?? matching[0];
+  }, [matching]);
+
+  const save = useMutation({
+    mutationFn: () => {
+      if (!value) throw new Error("날짜와 시간을 선택해 주세요.");
+      const iso = new Date(value).toISOString();
+      if (next) {
+        return api.patch(`/api/v1/events/${next.id}`, {
+          expectedVersion: next.version,
+          scheduleKind: "EXACT",
+          scheduledAt: iso,
+          startAt: iso,
+        });
+      }
+      return api.post(`/api/v1/applications/${applicationId}/events`, {
+        type,
+        scheduleKind: "EXACT",
+        scheduledAt: iso,
+        startAt: iso,
+      });
+    },
+    onSuccess: () => {
+      setEditing(false);
+      onChanged();
+    },
+  });
+
+  if (editing) {
+    return (
+      <td className="px-2 py-1.5 text-center">
+        <div className="flex items-center justify-center gap-1">
+          <input
+            type="datetime-local"
+            autoFocus
+            defaultValue={toDateTimeLocal(next?.scheduledAt ?? next?.startAt ?? null)}
+            onChange={(event) => setValue(event.target.value)}
+            className="w-36 rounded border border-gray-300 px-1 py-0.5 text-[11px] focus:border-brand focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => save.mutate()}
+            disabled={save.isPending}
+            aria-label={`${EVENT_LABELS[type]} 일정 저장`}
+            className="text-brand hover:opacity-70 disabled:opacity-40"
+          >
+            ✓
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            aria-label={`${EVENT_LABELS[type]} 일정 편집 취소`}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            ✕
+          </button>
+        </div>
+        {save.isError && <div className="mt-0.5 text-[10px] text-red-600">{(save.error as Error).message}</div>}
+      </td>
+    );
+  }
+
+  if (!next) {
+    return (
+      <td className="px-2 py-2 text-center">
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          title={`${EVENT_LABELS[type]} 일정 추가`}
+          className="text-gray-300 hover:text-brand"
+        >
+          +
+        </button>
+      </td>
+    );
+  }
+
+  const remaining = ["COMPLETED", "CANCELLED"].includes(next.status) ? null : dDay(next);
+  return (
+    <td className="px-2 py-2 text-center text-xs">
+      <button type="button" onClick={() => setEditing(true)} className="hover:text-brand hover:underline">
+        {fmt(next.scheduledAt ?? next.startAt, next.scheduledDate)}
+      </button>
+      {remaining && <span className={`ml-1 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${remaining.className}`}>{remaining.label}</span>}
+      {matching.length > 1 && <span className="ml-1 text-gray-400">+{matching.length - 1}</span>}
+    </td>
   );
 }
 
 export default function DashboardPage() {
   const router = useRouter();
   const qc = useQueryClient();
+  const invalidateApplication = (applicationId: string) => {
+    qc.invalidateQueries({ queryKey: ["applications"] });
+    qc.invalidateQueries({ queryKey: ["summary"] });
+    qc.invalidateQueries({ queryKey: ["events", applicationId] });
+  };
   const [url, setUrl] = useState("");
   const [showManual, setShowManual] = useState(false);
   const [manualCompany, setManualCompany] = useState("");
@@ -139,6 +273,7 @@ export default function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [sortBy, setSortBy] = useState<ScheduleSort>("UPDATED");
   const [sortDirection, setSortDirection] = useState<SortDirection>("DESC");
+  const [view, setView] = useState<"list" | "calendar">("list");
   const [notice, setNotice] = useState<string | null>(null);
   const resumePendingUrl = useRef(false);
 
@@ -264,9 +399,25 @@ export default function DashboardPage() {
     });
   }, [applications, summaryQuery.data, filter, statusFilter, sortBy, sortDirection, eventsByApplication]);
 
+  const FILTER_COUNTS: Record<Filter, number | undefined> = {
+    "전체": applications.length,
+    "오늘 일정": summaryQuery.data?.todayCount,
+    "이번주 일정": summaryQuery.data?.thisWeekCount,
+    "지원예정": applications.filter((a) => ["INTERESTED", "PLANNED"].includes(a.status)).length,
+    "진행중": applications.filter((a) => ["APPLIED", "IN_PROGRESS"].includes(a.status)).length,
+    "확인필요": summaryQuery.data?.needsReviewCount,
+  };
+
   return (
     <div>
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="grid grid-cols-2 gap-3">
+        {PROMO_BANNERS.map((banner) => (
+          <div key={banner.src} className="relative aspect-[2/1] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <Image src={banner.src} alt={banner.alt} fill sizes="50vw" className="object-cover" />
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 flex flex-col gap-2 lg:flex-row">
         <form
           className="flex flex-1 gap-2"
           onSubmit={(e) => {
@@ -280,24 +431,24 @@ export default function DashboardPage() {
             placeholder="채용공고 URL 붙여넣기"
             className={inputClass}
           />
-          <Button type="submit" disabled={saveUrl.isPending}>
+          <Button type="submit" variant="brand" className="whitespace-nowrap px-4" disabled={saveUrl.isPending}>
             URL 저장
           </Button>
         </form>
-        <Button variant="ghost" onClick={() => setShowManual((shown) => !shown)}>
-          {showManual ? "직접 등록 닫기" : "직접 등록"}
+        <Button variant="ghost" onClick={() => setShowManual(true)}>
+          직접 등록
         </Button>
       </div>
-      {showManual && (
+      {notice && <p className="mt-2 text-sm text-gray-500">{notice}</p>}
+
+      <Modal open={showManual} onClose={() => setShowManual(false)} title="지원 건 직접 등록">
         <form
-          className="mt-3 rounded-lg border border-gray-200 bg-white p-4"
           onSubmit={(e) => {
             e.preventDefault();
             setNotice(null);
             if (manualCompany.trim() && manualPosition.trim()) createManual.mutate();
           }}
         >
-          <p className="mb-3 text-sm font-medium text-gray-700">지원 건 직접 등록</p>
           <div className="grid gap-2 sm:grid-cols-2">
             <input
               value={manualCompany}
@@ -321,42 +472,17 @@ export default function DashboardPage() {
               onChange={(e) => setManualUrl(e.target.value)}
               placeholder="채용공고 URL (선택)"
               maxLength={4096}
-              className="sm:col-span-2 w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-gray-500 focus:outline-none"
+              className="sm:col-span-2 w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-brand focus:outline-none"
             />
           </div>
           <div className="mt-3 flex items-center gap-2">
-            <Button type="submit" disabled={createManual.isPending}>
+            <Button type="submit" variant="brand" disabled={createManual.isPending}>
               {createManual.isPending ? "만드는 중…" : "만들고 일정 추가"}
             </Button>
             <span className="text-xs text-gray-500">생성 후 상세 화면에서 전형 일정을 추가할 수 있습니다.</span>
           </div>
         </form>
-      )}
-      {notice && <p className="mt-2 text-sm text-gray-500">{notice}</p>}
-
-      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {(
-          [
-            ["오늘 일정", summaryQuery.data?.todayCount, "오늘 일정" as Filter],
-            ["이번 주 일정", summaryQuery.data?.thisWeekCount, "이번주 일정" as Filter],
-            ["확인 필요", summaryQuery.data?.needsReviewCount, "확인필요" as Filter],
-          ] as const
-        ).map(([label, count, target]) => (
-          <button
-            key={label}
-            onClick={() => setFilter((f) => (f === target ? "전체" : target))}
-            className={
-              "rounded-lg border bg-white px-4 py-3 text-left transition hover:border-gray-400 " +
-              (filter === target ? "border-gray-900" : "border-gray-200")
-            }
-          >
-            <div className="text-xs text-gray-500">{label}</div>
-            <div className="mt-1 text-2xl font-semibold tabular-nums">
-              {summaryQuery.isLoading ? "–" : count ?? 0}
-            </div>
-          </button>
-        ))}
-      </div>
+      </Modal>
 
       <div className="mt-5 flex flex-wrap gap-2 text-sm">
         {FILTERS.map((f) => (
@@ -364,16 +490,40 @@ export default function DashboardPage() {
             key={f}
             onClick={() => setFilter(f)}
             className={
-              "rounded-full px-3 py-1 " +
-              (filter === f ? "bg-gray-900 text-white" : "bg-white text-gray-600 hover:bg-gray-100")
+              "flex items-center gap-1.5 rounded-full px-3 py-1 transition-colors " +
+              (filter === f ? "bg-brand text-brand-foreground" : "bg-white text-gray-600 hover:bg-gray-100")
             }
           >
             {f}
+            <span
+              className={
+                "rounded-full px-1.5 text-xs tabular-nums " +
+                (filter === f ? "bg-white/20" : "bg-gray-100 text-gray-500")
+              }
+            >
+              {FILTER_COUNTS[f] ?? 0}
+            </span>
           </button>
         ))}
       </div>
 
-      <div className="mt-4 flex flex-col gap-2 rounded-lg border border-gray-200 bg-white p-3 sm:flex-row sm:items-center">
+      <div className="mt-4 flex flex-col gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center">
+        <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 text-sm">
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className={`rounded-md px-3 py-1.5 transition-colors ${view === "list" ? "bg-brand text-brand-foreground" : "text-gray-500 hover:bg-white"}`}
+          >
+            리스트
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("calendar")}
+            className={`rounded-md px-3 py-1.5 transition-colors ${view === "calendar" ? "bg-brand text-brand-foreground" : "text-gray-500 hover:bg-white"}`}
+          >
+            캘린더
+          </button>
+        </div>
         <label className="flex items-center gap-2 text-sm text-gray-600">
           <span className="shrink-0">지원 상태</span>
           <select
@@ -387,7 +537,8 @@ export default function DashboardPage() {
             ))}
           </select>
         </label>
-        <label className="flex flex-1 items-center gap-2 text-sm text-gray-600 sm:justify-end">
+        {view === "list" && (
+        <label className="flex flex-1 items-center gap-2 text-sm text-gray-600 lg:justify-end">
           <span className="shrink-0">정렬</span>
           <select
             value={sortBy}
@@ -413,6 +564,7 @@ export default function DashboardPage() {
               : (sortDirection === "ASC" ? "빠른 날짜부터 ↑" : "늦은 날짜부터 ↓")}
           </button>
         </label>
+        )}
         {(filter !== "전체" || statusFilter !== "ALL" || sortBy !== "UPDATED" || sortDirection !== "DESC") && (
           <button
             type="button"
@@ -429,8 +581,15 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200 bg-white">
-        <table className="min-w-full text-sm">
+      {view === "calendar" && (
+        <div className="mt-4">
+          <ScheduleCalendar applications={rows} eventsByApplication={eventsByApplication} />
+        </div>
+      )}
+
+      {view === "list" && (
+      <div className="mt-4 overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <table className="min-w-[960px] w-full text-sm">
           <thead className="border-b border-gray-200 bg-gray-50 text-xs text-gray-500">
             <tr>
               <th className="px-3 py-2 text-left">상태</th>
@@ -505,19 +664,12 @@ export default function DashboardPage() {
               </tr>
             )}
             {rows.map((a) => (
-              <tr key={a.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                <td className="px-3 py-2">
-                  <Badge tone={STATUS_TONE[a.status]}>{APPLICATION_STATUS_LABELS[a.status]}</Badge>
-                  {a.reviewStatus === "PENDING" && (
-                    <span className="ml-1">
-                      <Badge tone="amber">확인필요</Badge>
-                    </span>
-                  )}
-                </td>
+              <tr key={a.id} className="border-b border-gray-100 last:border-0 hover:bg-brand-light/40">
+                <StatusCell application={a} onChanged={() => invalidateApplication(a.id)} />
                 <td className="px-3 py-2">
                   {a.sourceUrl ? (
                     <a href={a.sourceUrl} target="_blank" rel="noopener noreferrer" className="group inline-block">
-                      <div className="font-medium group-hover:text-blue-600 group-hover:underline">
+                      <div className="font-medium group-hover:text-brand group-hover:underline">
                         {a.companyName ?? "분석 중…"} ↗
                       </div>
                       <div className="text-xs text-gray-500 group-hover:underline">{a.positionTitle ?? ""}</div>
@@ -529,10 +681,18 @@ export default function DashboardPage() {
                     </Link>
                   )}
                 </td>
-                <EventCells events={eventsByApplication.get(a.id) ?? []} />
+                {COLUMN_TYPES.map((type) => (
+                  <EventCell
+                    key={type}
+                    applicationId={a.id}
+                    type={type}
+                    events={eventsByApplication.get(a.id) ?? []}
+                    onChanged={() => invalidateApplication(a.id)}
+                  />
+                ))}
                 <EssayStatusCell applicationId={a.id} progress={essaysByApplication.get(a.id)} />
                 <td className="px-3 py-2 text-center">
-                  <Link href={`/app/applications/${a.id}`} className="text-xs text-blue-600 hover:underline">
+                  <Link href={`/app/applications/${a.id}`} className="text-xs text-brand hover:underline">
                     수정
                   </Link>
                 </td>
@@ -541,6 +701,7 @@ export default function DashboardPage() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
