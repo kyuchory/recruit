@@ -3,10 +3,11 @@
 채용공고 링크를 지원현황 표로 만들고, 서류·NCS·코딩테스트·AI 역량검사·면접 등
 각 절차의 일정을 사용자 확인 후 알려준다.
 
-설계 기준은 **`recruit-inbox-mvp-design-v1.1.md` (v1.1)**. `technical-design.md` /
-`schema.sql` 은 v1.1 이 대체한 v1.0 산출물이라 스키마 기준으로 쓰지 않는다
-(모델 무관한 구현 디테일만 참고). 현재 DB의 실제 상태는
-`backend/src/main/resources/db/migration/` 의 Flyway `V1`–`V5`.
+설계 기준은 **`recruit-inbox-mvp-design-v1.1.md` (v1.1)**이며 현재 구현 인수인계는
+`PROJECT_CONTEXT.md`를 먼저 본다. API 계약은 `contracts/openapi.yaml`, DB 실행 원본은
+`backend/src/main/resources/db/migration/`의 Flyway `V1`–`V8`이다. 사람이 읽는 현행 명세는
+`docs/API_REFERENCE.md`와 `docs/DATABASE_SCHEMA.md`에 정리했다. 루트 `schema.sql`은 v1.0
+설계 이력 보존용이며 현재 DB 생성에 사용하지 않는다.
 
 ```
 recuruit/
@@ -16,6 +17,8 @@ recuruit/
 │             parser(+html) ai(+openai) notification storage common
 ├─ docker-compose.yml   PostgreSQL 18 + Redis 8
 ├─ contracts/openapi.yaml
+├─ docs/API_REFERENCE.md
+├─ docs/DATABASE_SCHEMA.md
 ├─ .env.example
 └─ (설계 문서 3종)
 ```
@@ -55,6 +58,7 @@ cp .env.example .env
 - 로컬 개발은 `.env.example` 기본값 그대로 동작한다 (외부 자격증명 불필요).
 - 실제 연동이 필요할 때만 아래 값을 채운다:
   - `SPRING_PROFILES_ACTIVE=prod` + `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth2 로그인
+  - `SPRING_PROFILES_ACTIVE=prod,kakao` + `KAKAO_CLIENT_ID` / `KAKAO_CLIENT_SECRET` — Kakao OIDC 로그인도 활성화
   - `AI_ENABLED=true` + `OPENAI_API_KEY` — LLM 텍스트 추출
   - `STORAGE_PROVIDER=s3` + `S3_BUCKET` / `S3_REGION` (+ AWS 자격증명 체인) — 이미지 S3 저장
   - 값을 비워 두면 각각 dev 대체 구현(시드 로그인 / 규칙 파서만 / 로컬 파일 저장)이 쓰인다.
@@ -72,7 +76,7 @@ docker compose ps
   `SPRING_DATA_REDIS_PORT` 도 함께 조정한다.
 - PostgreSQL 18 이미지는 데이터 디렉터리 레이아웃이 바뀌어 볼륨을
   `/var/lib/postgresql` 에 마운트한다 (compose 에 이미 반영됨).
-- 스키마 초기화는 필요 없다. 백엔드가 뜰 때 Flyway 가 `V1`–`V5` 를 자동 적용한다.
+- 스키마 초기화는 필요 없다. 백엔드가 뜰 때 Flyway 가 `V1`–`V8` 를 자동 적용한다.
   깨끗한 상태로 다시 시작하려면 `docker compose down -v` (볼륨 삭제) 후 `up -d`.
 
 ### 4. 백엔드 실행 (Spring Boot, 포트 8080)
@@ -94,7 +98,7 @@ cd backend
 - `PATH` 의 기본 `java` 가 21 이면 `JAVA_HOME=...` 접두어는 생략 가능하지만,
   Gradle 데몬이 다른 JDK 를 잡는 것을 막으려면 명시하는 편이 안전하다.
 - 기동 로그에 `Started RecruitInboxBackendApplication` 이 뜨고
-  `Flyway ... migrations` 가 5개 적용되면 정상.
+  `Flyway ... migrations`가 V8까지 적용되면 정상.
 
 ### 5. 프론트엔드 실행 (Next.js, 포트 3000)
 
@@ -109,6 +113,14 @@ npm run dev
 - 개발 환경에는 Google 자격증명이 없으므로 **시드 사용자로 자동 로그인**된다
   (프론트가 `X-Dev-User-Id` 헤더를 자동 전송).
 
+### 5.1 공개 진입·로그인 흐름
+
+- `/`는 로그인 없이 볼 수 있는 소개·URL 접수 화면이고 `/app/**`는 사용자 영역이다.
+- 공개 화면에서 URL을 제출했는데 인증되지 않았다면 URL을 `sessionStorage`에 임시 보관하고 로그인으로 이동한다. 로그인 성공 후 `/app?resume=url`에서 한 번만 등록하며 실패 시 재시도를 위해 값을 유지한다.
+- OAuth 시작은 `/api/v1/auth/start/{google|kakao}?returnTo=/내부경로`를 사용한다. 서버는 외부 URL을 거부하고 내부 경로만 세션에 저장한다.
+- Google은 `prod` 프로필에서, Kakao는 `kakao` 프로필을 추가했을 때 등록된다. 미설정 공급자는 로그인 화면에서 비활성화된다.
+- Kakao Developers에서 OIDC를 활성화하고 callback을 `{backend-origin}/login/oauth2/code/kakao`로 등록한 뒤에만 실제 로그인을 확인할 수 있다.
+
 운영 환경에서는 `SPRING_PROFILES_ACTIVE=prod`를 지정하고
 `GOOGLE_CLIENT_ID`와 `GOOGLE_CLIENT_SECRET`을 모두 제공해야 한다. `prod` 프로필은
 개발용 사용자 헤더를 비활성화하며, 자격증명이 빠지면 백엔드는 기동에 실패한다.
@@ -117,21 +129,49 @@ npm run dev
 
 | 확인 | 명령 / URL | 기대 |
 |---|---|---|
-| 인프라 연결 | `curl localhost:8080/api/v1/health` | `{"postgres":"up","redis":"up","flywayMigrations":5,...}` |
+| 인프라 연결 | `curl localhost:8080/api/v1/health` | `{"postgres":"up","redis":"up","flywayMigrations":8,...}` |
 | Actuator | `curl localhost:8080/actuator/health` | `{"status":"UP", ...}` |
 | URL 저장 (202) | `curl -s -X POST localhost:8080/api/v1/links -H 'Content-Type: application/json' -H 'X-Dev-User-Id: 00000000-0000-0000-0000-000000000001' -H "Idempotency-Key: $(uuidgen)" -d '{"url":"https://careers.example.com/jobs/1"}'` | `202` + `{linkId, applicationId, extractionRunId, "QUEUED"}` |
 | 지원 목록 | `curl -s localhost:8080/api/v1/applications -H 'X-Dev-User-Id: 00000000-0000-0000-0000-000000000001'` | `{"items":[...], ...}` |
 | 웹 UI | http://localhost:3000/app | 지원현황 대시보드 |
+
+### 6.1 URL 및 일정 편집
+
+- 지원현황 표에는 URL을 별도 열로 표시하지 않는다.
+- URL이 있는 회사명 또는 직무를 클릭하면 원본 공고가 새 탭으로 열린다. 내부 관리 화면은 관리 열의 `수정`을 사용한다.
+- URL이 없는 지원 건의 회사·직무는 내부 수정 화면으로 이동한다.
+- `직접 등록` 폼의 URL은 선택 항목이다. 입력하면 기존 `links` 행의 `original_url`, `normalized_url`, `url_hash`에 저장한다.
+- 지원 상세에서는 원본 URL을 등록·수정할 수 있다. 전형 카드의 `수정`을 눌러 정확한 일시, 날짜만, 날짜 미정으로 변경할 수 있으며 서류 전형은 상시 채용/채용 시 마감도 지원한다.
+- 확정된 일정 수정 시 기존 미발송 알림은 취소되고 일정은 미확정 상태가 된다. 변경값 저장 후 `이 일정으로 확인`을 다시 눌러야 새 알림이 예약된다.
+- URL 수정은 참조할 원본 주소만 변경하며 공고 분석을 자동 재실행하지 않는다.
+- 지원현황의 빠른 필터와 지원 상태 필터를 함께 적용할 수 있다. 정렬 메뉴를 사용하거나 서류·NCS·코테·1차·2차 표 머리글 옆의 `↑`·`↓`를 눌러 날짜 방향을 즉시 선택하며 일정 없는 지원은 마지막에 표시한다.
+- 전형 날짜 옆 D-day는 이벤트의 IANA 시간대로 계산한다. `D-8` 이상은 초록, `D-4`~`D-7`은 노랑, `D-DAY`~`D-3`은 빨강, 이미 지난 `D+N`은 회색으로 표시하며 완료·취소 전형은 제외한다.
+
+### 6.2 자기소개서 이력
+
+- 지원 수정 화면 상단의 `자기소개서 작성 →` 링크로 `/app/applications/{id}/essays` 전용 작성 화면에 진입한다. 지원 수정 화면은 회사·직무·URL·상태와 전형 타임라인을 우선 표시한다.
+- 자기소개서 전용 화면에서 공고별 문항을 순서대로 추가하고 현재 답변을 저장한다.
+- INBOX의 `자기소개서` 컬럼은 문항 없음 `미작성`, 일부 작성 `작성중`, 모든 문항 완료 `작성됨`을 표시한다. 상태를 누르면 해당 지원의 자기소개서 작성 화면으로 이동한다.
+- 문항 제한은 제한 없음, 공백 포함/제외 글자 수, UTF-8 바이트, 한글·비ASCII 2바이트 환산 중 하나를 선택한다. 화면은 네 계산값을 항상 함께 표시하고 선택 기준을 초과하면 경고한다.
+- `현재 내용 버전 저장`은 먼저 최신 편집 내용을 저장한 뒤 질문·제한·답변과 계산값을 스냅샷으로 남긴다. 이력에서 과거 답변을 현재 초안으로 복원할 수 있다.
+- 문항 삭제 시 해당 문항의 모든 버전도 함께 삭제된다. 모든 조회·수정은 인증 사용자의 지원 소유권으로 제한한다.
+
+### 6.3 내 지원정보
+
+- `/app/profile`의 기본 화면은 인적사항부터 자기소개서 소재까지 모든 분류를 이력서 형식의 한 문서로 보여준다. 상단 `전체`·분류 목차는 고정되며 분류를 누르면 해당 섹션으로 스크롤한다. 전체 검색·전체 정보 복사와 각 섹션의 추가·수정을 제공한다.
+- 예를 들어 인적사항은 한글·한자·영문 이름, 연락처와 주소를, 경력은 회사·직무·직급·직전연봉·근무기간·퇴사 사유·성과를 각각 저장한다. 자격증은 자격증명·등급·발행기관·취득일·등록번호를 저장한다. 인적사항과 병역은 한 묶음, 학력·경력·프로젝트 등은 여러 이력을 등록할 수 있다.
+- 전용 필드 값은 AES-256-GCM으로 암호화한다. `민감 정보` 표시는 목록의 모든 값을 기본적으로 가리는 UI 설정이다. 로컬 기본 프로필은 별도 설정 없이 개발 전용 고정 키를 사용하고, `prod` 프로필은 `PROFILE_ENCRYPTION_KEY`에 base64로 인코딩한 별도 32바이트 키가 반드시 필요하다. 운영 키를 잃거나 변경하면 기존 값을 복호화할 수 없다.
+- 주민등록번호, 여권번호, 계좌번호, 비밀번호 등 고위험 정보는 보관 대상에서 제외한다. 첨부된 개인 정보는 자동으로 DB에 가져오지 않는다.
 
 ### 7. 테스트
 
 ```bash
 # 백엔드: Docker 데몬만 떠 있으면 된다 (compose 불필요).
 # 통합 테스트가 Testcontainers 로 PostgreSQL 18 + Redis 8 을 자동 기동한다.
-cd backend && JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test   # 69 tests
+cd backend && JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test   # 99 tests (2026-09-12)
 
 # 프론트엔드
-cd frontend && npm run lint && npm run build
+cd frontend && npm run lint && npx tsc --noEmit && npm run build
 ```
 
 > 백엔드 통합 테스트는 `AbstractIntegrationTest` 를 상속해 Testcontainers 가 관리하는

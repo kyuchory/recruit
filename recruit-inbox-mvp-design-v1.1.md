@@ -13,6 +13,7 @@
 - 초기에는 DB 작업 상태 + 내부 TaskExecutor + Spring Scheduler + DB claim을 사용한다. Redis는 세션·제한·캐시·보조 lock에 사용하며 RabbitMQ와 독립 Parser/Notification Worker는 후속 확장이다.
 - 날짜 사용자 확인, 추출 제안과 수정값 분리, fallback·SSRF 방어·비용 상한·테스트·운영 복구를 유지하고 이벤트 전반으로 확대했다.
 - 웹 우선, React Native/Expo와 Share Extension, 범용 `article/event/product` Inbox 확장을 유지했다. 회사·직무·전형별 커뮤니티는 운영 리스크와 함께 장기 로드맵에 추가했다.
+- 구현 정합성 보완(2026-09-12): 원본 URL은 등록/수정할 수 있고 지원현황에서는 별도 URL 열 없이 회사·직무에서 새 탭으로 연다. 전형 일정은 삭제 후 재생성하지 않고 일정 방식과 날짜·시간을 직접 수정한다.
 
 이 문서는 구현 계약과 출시 판정 기준이다. 수치·기간·비용은 초기 목표 또는 설정값이며 검증된 실적이 아니다. 모든 사이트의 자동 분석을 보장하지 않는다. 모델명·단가·무료 할당량은 착수 시 확인하고 확정한다. 원본 v1.0은 별도로 보존한다.
 
@@ -26,7 +27,7 @@
 | R2 | 정보 자동 정리 | 회사·직무·마감·전형을 근거와 함께 제안하고 개별 수정 |
 | R3 | 이미지 공고 처리 | PNG/JPEG/WebP 업로드·Vision fallback, 실패 시 수동 입력 |
 | R4 | 절차별 알림 | 사용자가 등록·확인한 모든 이벤트에 하루 전·3시간 전·30분 전 등 복수 규칙 |
-| R5 | 지원현황 관리 | 지원 상태와 각 이벤트 결과·일정·장소·메모를 별도로 관리 |
+| R5 | 지원현황 관리 | 지원 상태와 각 이벤트 결과·일정·장소·메모를 별도로 관리. 회사·직무에서 원본 URL 새 탭 열기 제공 |
 | R6 | 오류 복구 | 재분석은 새 제안만 생성. 사용자 수정·확정 일정을 덮어쓰지 않음 |
 | R7 | 웹 우선·앱 확장 | 반응형 웹, 동일 Spring REST API를 사용하는 모바일 계약 |
 
@@ -56,15 +57,17 @@
 
 ## 3. 핵심 UX와 화면
 
-기존 Notion형 `회사 / 원서 마감 / URL / 서류 / 코테 / 1차 / 2차` 표를 유지하되 열은 이벤트 요약이다. 원본의 절차 안내는 제안이고 합격·탈락은 개인 기록이다. 같은 유형의 일정이 두 개면 하나로 합치지 않고 상세에 모두 표시한다.
+기존 Notion형 지원표를 참고하되 화면은 `상태 / 회사·직무 / 서류 / NCS / 코테 / 1차 / 2차 / 관리`로 구성하고 URL은 별도 열로 노출하지 않는다. 원본의 절차 안내는 제안이고 합격·탈락은 개인 기록이다. 같은 유형의 일정이 두 개면 하나로 합치지 않고 상세에 모두 표시한다.
 
 | 경로 | 화면 | 핵심 구성 |
 |---|---|---|
 | `/`, `/login` | 소개·로그인 | 확정한 로그인 방식 |
-| `/app` | 지원현황 | URL 입력, 오늘 일정·이번 주 코테·확인 필요, 테이블 |
+| `/app` | 지원현황 | URL 입력, 오늘 일정·이번 주 코테·확인 필요, 회사·직무 원본 새 탭 열기, 전형별 D-day, 자기소개서 작성 상태, 관리 열의 수정 링크, 테이블 |
 | `/app/links/:id` | 링크 상세 | 원본·분석 근거·여러 포지션 |
-| `/app/applications/:id` | 지원 상세 | 회사·직무·이벤트 타임라인·개인 기록 |
+| `/app/applications/:id` | 지원 수정 | 회사·직무·원본 URL·상태 등록/수정, 전형 타임라인·알림 관리, 자기소개서 작성 화면 진입 |
+| `/app/applications/:id/essays` | 자기소개서 작성 | 지원별 문항·답변·글자 수·버전 이력 관리 |
 | `/app/notifications` | 알림함 | 공개된 IN_APP 알림·읽음 처리·채널 전달 상태 |
+| `/app/profile` | 내 지원정보 | 전체 이력서 기본 보기, 분류 목차 스크롤, 인적·학력·경력·자격·프로젝트·자소서 소재의 보관·검색·복사 |
 | `/app/settings` | 설정 | 시간대·이메일 동의·한도·삭제, 후속 푸시 권한 |
 
 ```text
@@ -78,7 +81,17 @@ NCS           날짜 미정      미시작     [일정 등록]
 
 일정 확인 패널은 추출 근거, 연도·날짜·시간·시간대, 알림 기준(예정/시작/종료), 실제 발송 예정 시각, 채널을 보여준다. 수동 저장도 명시적인 `이 일정으로 확인·저장` 행동을 거친다. 날짜만 있으면 시간을 만들어 넣지 않고 D-1 현지 09:00 같은 날짜용 규칙을 안내한다. `3시간 전/30분 전`은 정확한 시각이 있을 때만 선택 가능하다.
 
-분석 중 편집 가능, 2초→5초 폴링 후 90초에 수동 새로고침 제공. 셀 Enter 저장·Esc 취소, 충돌은 최신 값 비교. 모바일 카드·전체 상세 폼, 키보드·포커스·스크린리더·텍스트 상태 제공. 원본을 열었다고 지원완료로 바꾸지 않는다. 알림함의 앱 내 알림은 웹에서도 보는 수신함이며 OS 푸시를 의미하지 않는다.
+분석 중 편집 가능, 2초→5초 폴링 후 90초에 수동 새로고침 제공. 셀 Enter 저장·Esc 취소, 충돌은 최신 값 비교. 모바일 카드·전체 상세 폼, 키보드·포커스·스크린리더·텍스트 상태 제공. 원본을 열었다고 지원완료로 바꾸지 않는다. 알림함의 앱 내 알림은 웹에서도 보는 수신함이며 OS 푸시를 의미하지 않는다. 지원현황은 빠른 필터와 정확한 Application 상태 필터를 조합할 수 있고, 서류·NCS·코테·1차·2차 컬럼명 옆의 테두리·배경 없는 작은 세로형 위·아래 버튼으로 날짜를 오름차순/내림차순 정렬한다. 컬럼명 클릭도 같은 컬럼의 정렬 방향을 토글하며 선택 상태는 별도 강조하지 않는다. 선택한 전형의 유효한 일정이 없는 행은 항상 마지막에 둔다. 각 일정 셀은 날짜 옆에 `D-N` 또는 `D+N`을 표시하고 8일 이상 초록, 4–7일 노랑, 3일 이내·당일은 빨강, 이미 경과한 `D+N` 일정은 회색으로 구분한다. 완료·취소된 전형에는 표시하지 않는다.
+
+지원현황에는 URL을 별도 열로 노출하지 않는다. `sourceUrl`이 있을 때 회사·직무를 클릭하면 원본 공고를 `noopener noreferrer`가 적용된 새 탭으로 연다. 내부 지원 관리 화면은 관리 열의 `수정` 링크로 진입한다. URL이 없는 회사·직무는 수정 화면으로 연결하며 URL 등록·수정은 상세 화면에서 제공한다. URL 변경은 소유한 Link의 원본·정규화 URL·해시를 갱신하지만 자동 재분석은 시작하지 않는다.
+
+이벤트 카드의 일정 수정은 EXACT, DATE_ONLY, UNKNOWN을 지원하고 DOCUMENT_DEADLINE은 ROLLING, UNTIL_FILLED도 지원한다. 일정 종류를 바꿀 때 이전 종류의 날짜 필드를 제거한다. 확정 일정이 변경되면 confirmed_at을 비우고 status를 UNSCHEDULED로 되돌리며 schedule_version을 증가시키고 기존 미발송 예약을 취소한다. 새 일정은 사용자가 다시 확인해야 알림 대상이 된다.
+
+자기소개서는 Application에 종속된 문항과 현재 초안, 명시적으로 저장한 버전 스냅샷으로 관리한다. 지원 수정 화면에서는 자기소개서 본문을 제거하고 상단의 작은 링크로 `/app/applications/:id/essays` 전용 화면에 진입한다. 수정 화면은 회사 정보 다음 전형 타임라인을 우선 배치한다. INBOX에는 자기소개서 컬럼을 두고 문항이 없으면 `미작성`, 일부 문항이 DRAFT이면 `작성중`, 등록 문항이 모두 COMPLETED이면 `작성됨`으로 표시하며 클릭 시 전용 화면으로 이동한다. 문항은 질문·순서·작성 상태와 제한 기준(`NONE`, 공백 포함/제외 글자, UTF-8 byte, ASCII 1/비ASCII 2 byte 환산)을 가진다. 현재 초안 저장은 버전 이력을 자동 생성하지 않으며 사용자가 `버전 저장`을 실행할 때 질문·제한·답변·계산값을 함께 보존한다. 과거 버전 복원은 답변을 DRAFT 상태의 현재 초안으로 복사하고 기존 이력을 변경하지 않는다.
+
+공고와 무관하게 반복 사용하는 개인 지원정보는 사용자 소유 `career_profile_items`에 분리한다. 인적사항·병역·학력·외국어·자격증·경력·수상·활동·기술·프로젝트·자소서 소재마다 서로 다른 고정 필드 정의를 사용한다. 인적사항·병역은 사용자당 한 묶음만 두고, 학력·경력·프로젝트 등 이력형 분류는 여러 항목을 허용한다. 필드 값은 인증키 방식의 필드 암호화로 보호하며 로컬은 개발 전용 키, 운영은 환경변수로 주입한 별도 키를 사용한다. 민감 표시는 화면 기본 가림을 의미한다. 주민등록번호·여권·계좌·인증 비밀 같은 고위험 정보는 저장하지 않는다.
+
+내 지원정보의 기본 화면은 전체 분류를 이력서 순서로 이어 붙인 단일 문서다. 상단의 전체·분류 목차는 스크롤 중에도 접근 가능하고, 분류 선택은 목록 필터가 아니라 해당 문서 섹션으로의 부드러운 스크롤 이동으로 동작한다. 각 섹션에서 해당 분류 항목을 바로 추가·수정하며 전체 검색과 전체 텍스트 복사를 제공한다.
 
 ## 4. 도메인·상태·전체 서비스 흐름
 
@@ -190,6 +203,8 @@ backend/src/main/java/.../
   scheduler/ usage/ common/     claim·복구·비용·시간·오류
 backend/src/main/resources/db/migration/
 contracts/openapi.yaml          REST 계약 스냅샷
+docs/API_REFERENCE.md           구현 API 인수인계용 요약
+docs/DATABASE_SCHEMA.md         Flyway V1–V8 현행 DB 요약
 tests/fixtures/                 허가된 익명 공고·정답
 ```
 
@@ -411,16 +426,16 @@ ERD는 업무 관계 중심이며 캐시·멱등·비용 예산·웹훅·삭제 
 | POST /uploads/:id/complete | expected_version | 200 실제 MIME·bytes·픽셀 검증 후 READY, 검증 실패415/413 |
 | GET /uploads/:id | 없음 | 200 소유자만 짧은 읽기 URL 또는 만료 상태 |
 | DELETE /uploads/:id | If-Match | 204 사용 중 작업 취소 또는409, 파일 삭제 예약 |
-| GET /applications | status,needs_review,q,sort,cursor,limit | 200 지원 기록 중심 테이블 행. link_id/application_id/next_event 포함 |
+| GET /applications | status,needs_review,q,sort,cursor,limit | 200 지원 기록 중심 테이블 행. link_id/application_id/sourceUrl/next_event 포함 |
 | POST /links/:id/applications | position_key,position_title? | 201 다른 포지션·재지원 생성 |
 | GET /applications/:id | 없음 | 200 지원·이벤트·각 알림 규칙 |
-| PATCH /applications/:id | company_name?,position_title?,status?,notes?,archived?,expected_version | 200 개인 수정, 상태별 취소 정책 적용 |
+| PATCH /applications/:id | sourceUrl?,company_name?,position_title?,status?,notes?,archived?,expected_version | 200 개인 수정. sourceUrl은 소유 Link의 URL을 검증·정규화해 갱신하며 자동 재분석하지 않음. 상태별 취소 정책 적용 |
 | POST /applications/:id/confirm | run_id?,selected_position_id?,fields,placeholder_candidates?,expected_version | 200 회사·직무 확정/검토한 날짜 미정 이벤트 생성. 일정 자동 활성화 안 함 |
 | DELETE /applications/:id | If-Match | 204 이 지원만 삭제·알림 취소. 링크는 유지 |
 | GET /events | from,to,type?,status?,cursor,limit | 200 사용자 일정. timestamp는 [from,to), DATE_ONLY는 이벤트 현지 날짜로 범위 비교 |
 | POST /applications/:id/events | type,custom_label?,schedule_kind?,scheduled_at/start_at/end_at/scheduled_date?,timezone?,location?,url?,notes? | 201 미확인 이벤트. 날짜 없는 placeholder 허용 |
 | GET /events/:id | 없음 | 200 일정·result/status·근거·규칙·예약 |
-| PATCH /events/:id | 수정 필드,expected_version | 200. 날짜 수정은 확인 초기화·구예약 취소; status/result/notes는 별도 정책 |
+| PATCH /events/:id | 수정 필드,expected_version | 200. 날짜/일정 종류 수정은 비호환 날짜 필드 제거·확인 초기화·schedule_version 증가·구예약 취소; status/result/notes는 별도 정책 |
 | POST /events/:id/confirm | 아래 예시 | 200 확정 이벤트·규칙·실제 예약 목록·skipped_reasons. 일정·규칙 원자적 처리 |
 | DELETE /events/:id | If-Match | 204 미발송 예약·전달 취소 후 삭제 정책 |
 | GET /events/:id/notification-rules | 없음 | 200 규칙 목록 |
@@ -439,6 +454,10 @@ ERD는 업무 관계 중심이며 캐시·멱등·비용 예산·웹훅·삭제 
 | POST /webhooks/email | 제공사 서명·timestamp·event ID | 200 중복/역순 안전 처리. 사용자 인증 대신 서명 검증 |
 
 OAuth 시작 `/oauth2/authorization/{provider}`, callback `/login/oauth2/code/{provider}`는 Spring Security 경로다. 이메일 대안은 `/api/v1/auth/register`, `/login`, `/verify-email`, `/forgot-password`, `/reset-password`를 선택 시 구현하며 인증 시도 rate limit·단회 token·CSRF를 적용한다. 사용하지 않는 방식·후속 푸시 endpoint는 MVP에서 비활성이다. 날짜 없는 규칙 저장은 허용하되 지원하지 않는 채널 요청은 `CHANNEL_NOT_AVAILABLE`로 거절한다.
+
+구현 보충(2026-09-12): `/`는 공개 소개·URL 접수, `/app/**`는 인증 영역으로 운용한다. 공개 접수 중 로그인이 필요하면 브라우저 sessionStorage에 URL을 잠시 보관하고 서버 세션의 검증된 내부 `returnTo`를 통해 로그인 후 동작을 재개한다. OAuth 공급자별 시작점은 `/api/v1/auth/start/{provider}`로 통일하며 Google과 Kakao identity는 provider+subject로 분리한다. Kakao 자격증명이 없는 환경에서는 해당 client registration 자체를 만들지 않고 UI도 비활성화한다.
+
+사람인 채용공고 API 연동은 별도 외부-source adapter로 둔다. access key 발급 전에는 요청/응답 계약, 도메인 매핑, fixture 기반 parser, 캐시·쿼터 정책, 달력/목록/Inbox 추가 UI까지 개발할 수 있다. 실 API의 응답 편차·페이지네이션·오류·쿼터 검증과 운영 활성화는 키 발급 이후 완료 조건이다. 외부 공고를 전문 재배포하지 않고 출처와 원문 링크를 유지한다.
 
 ### 7.3 코딩테스트 확인 예시
 
@@ -828,8 +847,10 @@ Manifest V3의 `activeTab`은 사용자 동작 시 현재 탭에 일시 권한�
 
 - [ ] 선택한 로그인, 로그아웃, CSRF/OAuth callback, 두 사용자 owner 격리
 - [ ] URL 중복·다중 포지션·재지원, API 멱등키/수정 version, 안정적 페이지네이션
+- [x] 지원 목록·상세 sourceUrl 응답, 수동 등록의 선택 URL, 상세 URL 수정·중복 검증, 회사·직무 원본 새 탭 열기
 - [ ] 모든 event enum 및 CUSTOM 라벨, 같은 type 여러 이벤트, 일정 미정 placeholder
 - [ ] 예정·시작·종료·날짜만·장소·URL·메모·result/status, 지원 상태 독립
+- [x] 이벤트 카드 일정 수정, 일정 종류 전환 시 이전 날짜 필드 제거, 수정 후 확인 해제·구예약 취소
 - [ ] company/position/event field_meta, 재분석 제안과 사용자 확정값 분리
 - [ ] 반응형 표/카드·상세·키보드·오류·분석 90초 복구 경로
 - [ ] OpenAPI·Java enum·DB CHECK·프론트 타입·Mermaid 관계 일치
@@ -864,6 +885,7 @@ Manifest V3의 `activeTab`은 사용자 동작 시 현재 탭에 일시 권한�
 | 이벤트 | NCS/CODING_TEST/AI_ASSESSMENT/각 면접/발표/오리엔테이션/CUSTOM, 동일 type 복수, 시간 미정에는 알림 없음 |
 | 정보 분리 | 공고 절차를 합격 결과로 추론 안 함, 재분석이 수정값 덮지 않음, 늦은 generation 적용 차단 |
 | 중복·경합 | 동시 저장 1링크·1기본지원·1활성run, 다른 포지션 분리, 두 화면 수정409, confirm과 rule 수정 경합 |
+| URL 편집 | URL import 응답·목록 sourceUrl, 수동 등록 선택 URL, 상세에서 기존 Link URL 수정, invalid/중복 URL 거절, 회사·직무 새 탭 링크, 목록 URL 열 미노출 |
 | 알림 | 코테 1440/180/30분, 확인 전0건·확인 후3건, 두 채널 선택 시6건, 일정 수정은 구버전 취소 |
 | 취소 | APPLIED 후 서류 취소·코테 유지, ACCEPTED 후 ORIENTATION 유지, REJECTED 전체 취소, 이메일 해제 시 IN_APP 유지 |
 | 복구 | commit 직후 crash, executor rejection, lease 만료·구 실행자 fencing, Scheduler 중단 후 유효 backlog만 재개 |

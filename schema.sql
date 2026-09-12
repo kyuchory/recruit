@@ -1,5 +1,8 @@
+-- LEGACY v1.0 DESIGN SNAPSHOT — DO NOT APPLY TO THE CURRENT APPLICATION.
+-- The executable database source of truth is backend/src/main/resources/db/migration/V1..V8.
+-- See docs/DATABASE_SCHEMA.md for the current human-readable database specification.
+-- This file is retained only to preserve the original design history.
 -- 채용 지원 일정 관리 MVP / PostgreSQL 16+ / empty application schema
--- Flyway V1 migration candidate. UUIDs may also be supplied by the application.
 BEGIN;
 CREATE TABLE users (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

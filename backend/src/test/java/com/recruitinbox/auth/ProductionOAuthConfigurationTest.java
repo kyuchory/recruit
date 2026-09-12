@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,8 @@ import com.recruitinbox.support.AbstractIntegrationTest;
 
 @SpringBootTest(properties = {
         "spring.security.oauth2.client.registration.google.client-id=test-google-client",
-        "spring.security.oauth2.client.registration.google.client-secret=test-google-secret"
+        "spring.security.oauth2.client.registration.google.client-secret=test-google-secret",
+        "PROFILE_ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 })
 @ActiveProfiles("prod")
 @AutoConfigureMockMvc
@@ -57,5 +59,23 @@ class ProductionOAuthConfigurationTest extends AbstractIntegrationTest {
                 .andReturn().getResponse().getRedirectedUrl();
 
         assertThat(location).startsWith("https://accounts.google.com/");
+    }
+
+    @Test
+    void exposesAvailableLoginProviders() throws Exception {
+        mvc.perform(get("/api/v1/auth/providers"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.google", is(true)))
+                .andExpect(jsonPath("$.kakao", is(false)));
+    }
+
+    @Test
+    void authStartRejectsAnExternalReturnPath() throws Exception {
+        mvc.perform(get("/api/v1/auth/start/google")
+                        .param("returnTo", "https://attacker.example/steal"))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/oauth2/authorization/google"));
+        assertThat(AuthFlowController.safeReturnTo("https://attacker.example/steal")).isEqualTo("/app");
+        assertThat(AuthFlowController.safeReturnTo("/app?resume=url")).isEqualTo("/app?resume=url");
     }
 }

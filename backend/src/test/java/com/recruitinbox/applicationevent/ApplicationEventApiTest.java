@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -147,6 +149,60 @@ class ApplicationEventApiTest extends com.recruitinbox.support.AbstractIntegrati
                 .andExpect(jsonPath("$.scheduleVersion", is(2)))
                 .andExpect(jsonPath("$.status", is("UNSCHEDULED")))
                 .andExpect(jsonPath("$.confirmedAt").doesNotExist());
+    }
+
+    @Test
+    void returnsDaysUntilUsingTheEventTimezone() throws Exception {
+        String target = LocalDate.now(ZoneId.of("Asia/Seoul")).plusDays(5).toString();
+
+        mvc.perform(post("/api/v1/applications/{id}/events", appA)
+                        .header("X-Dev-User-Id", ownerA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"type":"DOCUMENT_DEADLINE","scheduleKind":"DATE_ONLY",
+                                 "scheduledDate":"%s","timezone":"Asia/Seoul"}
+                                """.formatted(target)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.daysUntil", is(5)));
+    }
+
+    @Test
+    void scheduleKindCanBeChangedWithoutKeepingIncompatibleDateFields() throws Exception {
+        String id = create("""
+                {"type":"DOCUMENT_DEADLINE","scheduleKind":"EXACT","startAt":"2026-09-28T04:00:00Z",
+                 "scheduledAt":"2026-09-28T04:00:00Z","status":"SCHEDULED"}""");
+
+        mvc.perform(patch("/api/v1/events/{id}", id)
+                        .header("X-Dev-User-Id", ownerA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"expectedVersion":0,"scheduleKind":"DATE_ONLY",
+                                 "scheduledDate":"2026-09-29"}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scheduleKind", is("DATE_ONLY")))
+                .andExpect(jsonPath("$.scheduledDate", is("2026-09-29")))
+                .andExpect(jsonPath("$.scheduledAt").doesNotExist())
+                .andExpect(jsonPath("$.startAt").doesNotExist())
+                .andExpect(jsonPath("$.scheduleVersion", is(2)))
+                .andExpect(jsonPath("$.status", is("UNSCHEDULED")));
+    }
+
+    @Test
+    void confirmedScheduleCanBeCleared() throws Exception {
+        String id = create("""
+                {"type":"DOCUMENT_DEADLINE","scheduleKind":"EXACT","startAt":"2026-09-28T04:00:00Z",
+                 "scheduledAt":"2026-09-28T04:00:00Z","status":"SCHEDULED"}""");
+
+        mvc.perform(patch("/api/v1/events/{id}", id)
+                        .header("X-Dev-User-Id", ownerA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"expectedVersion":0,"clearSchedule":true}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scheduleKind", is("UNKNOWN")))
+                .andExpect(jsonPath("$.scheduledAt").doesNotExist())
+                .andExpect(jsonPath("$.scheduleVersion", is(2)))
+                .andExpect(jsonPath("$.status", is("UNSCHEDULED")));
     }
 
     @Test

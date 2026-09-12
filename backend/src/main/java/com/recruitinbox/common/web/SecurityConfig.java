@@ -34,10 +34,13 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     private final List<String> allowedOrigins;
+    private final boolean requireAuthentication;
 
-    public SecurityConfig(@Value("${app.cors.allowed-origins}") String allowedOrigins) {
+    public SecurityConfig(@Value("${app.cors.allowed-origins}") String allowedOrigins,
+            @Value("${app.auth.require-authentication:false}") boolean requireAuthentication) {
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim).filter(s -> !s.isEmpty()).toList();
+        this.requireAuthentication = requireAuthentication;
     }
 
     @Bean
@@ -58,12 +61,19 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authErrorHandler)
                         .accessDeniedHandler(authErrorHandler))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/**").permitAll()
-                        .requestMatchers("/actuator/health/**", "/actuator/info",
+                .authorizeHttpRequests(auth -> {
+                    auth.requestMatchers("/api/v1/auth/csrf", "/api/v1/auth/providers",
+                            "/api/v1/auth/start/**").permitAll();
+                    if (requireAuthentication) {
+                        auth.requestMatchers("/api/v1/**").authenticated();
+                    } else {
+                        auth.requestMatchers("/api/v1/**").permitAll();
+                    }
+                    auth.requestMatchers("/actuator/health/**", "/actuator/info",
                                 "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
                                 "/oauth2/**", "/login/**").permitAll()
-                        .anyRequest().authenticated())
+                        .anyRequest().authenticated();
+                })
                 .httpBasic(basic -> basic.disable())
                 .formLogin(form -> form.disable());
 

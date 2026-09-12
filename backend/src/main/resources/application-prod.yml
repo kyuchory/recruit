@@ -10,3 +10,9 @@ spring:
         provider:
           google:
             issuer-uri: https://accounts.google.com
+
+app:
+  auth:
+    require-authentication: true
+  profile:
+    encryption-key: ${PROFILE_ENCRYPTION_KEY}

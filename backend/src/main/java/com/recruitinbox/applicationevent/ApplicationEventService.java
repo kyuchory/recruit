@@ -94,6 +94,15 @@ public class ApplicationEventService {
             e.setScheduledDate(null);
         } else {
             if (req.scheduleKind() != null) {
+                if (req.scheduleKind() != e.getScheduleKind()) {
+                    // A schedule-kind change replaces the old shape. Without clearing
+                    // these first, EXACT -> DATE_ONLY (and the reverse) would retain
+                    // incompatible fields and fail validation.
+                    e.setScheduledAt(null);
+                    e.setStartAt(null);
+                    e.setEndAt(null);
+                    e.setScheduledDate(null);
+                }
                 e.setScheduleKind(req.scheduleKind());
             }
             if (req.scheduledAt() != null) {
@@ -128,8 +137,6 @@ public class ApplicationEventService {
             e.setStatus(req.status());
         }
 
-        ScheduleShapeValidator.validate(e);
-
         boolean scheduleChanged = !before.equals(scheduleSignature(e));
         if (scheduleChanged) {
             // v1.1 section 6.3: schedule edits reset confirmation, bump the
@@ -141,6 +148,8 @@ public class ApplicationEventService {
                 e.setStatus(EventStatus.UNSCHEDULED);
             }
         }
+
+        ScheduleShapeValidator.validate(e);
 
         EventResponse out;
         try {

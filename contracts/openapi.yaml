@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: 채용공고 Inbox API
-  version: 0.2.0
+  version: 0.3.0
   description: >
     Hand-maintained snapshot of the implemented MVP REST surface.
     Model: recruit-inbox-mvp-design-v1.1.md §7. Frontend types mirror this in
     frontend/lib/types.ts. springdoc auto-generation is deferred until a
-    Spring Boot 4 compatible release ships. Production uses the Google OAuth2
+    Spring Boot 4 compatible release ships. Production uses the Google/Kakao OAuth2
     session cookie; development may use X-Dev-User-Id. Mutating requests also
     require the X-XSRF-TOKEN header obtained from /api/v1/auth/csrf.
 servers:
@@ -20,6 +20,8 @@ tags:
   - name: links
   - name: applications
   - name: events
+  - name: essays
+  - name: profile
   - name: notification-rules
   - name: notifications
   - name: uploads
@@ -61,6 +63,38 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CsrfToken" }
+  /api/v1/auth/providers:
+    get:
+      tags: [auth]
+      security: []
+      summary: Report configured OAuth login providers
+      responses:
+        "200":
+          description: Provider availability
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [google, kakao]
+                properties:
+                  google: { type: boolean }
+                  kakao: { type: boolean }
+  /api/v1/auth/start/{provider}:
+    get:
+      tags: [auth]
+      security: []
+      summary: Store a safe post-login path and start OAuth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string, enum: [google, kakao] }
+        - name: returnTo
+          in: query
+          required: false
+          schema: { type: string, default: /app }
+      responses:
+        "302": { description: Redirect to Spring OAuth authorization or back to login when unavailable }
   /api/v1/auth/logout:
     post:
       tags: [auth]
@@ -82,6 +116,57 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SummaryResponse" }
         "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/profile-items:
+    get:
+      tags: [profile]
+      summary: List the current user's reusable application information
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/ProfileCategory" }
+      responses:
+        "200":
+          description: profile items
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ProfileItemResponse" } }
+    post:
+      tags: [profile]
+      summary: Add a reusable application-information item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileItemCreate" }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/ProfileItemResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/profile-items/{id}:
+    patch:
+      tags: [profile]
+      summary: Update an owned profile item
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileItemUpdate" }
+      responses:
+        "200": { description: updated, content: { application/json: { schema: { $ref: "#/components/schemas/ProfileItemResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [profile]
+      summary: Delete an owned profile item
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: If-Match, in: header, required: true, schema: { type: string } }
+      responses:
+        "204": { description: deleted }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /api/v1/settings:
     get:
@@ -172,8 +257,12 @@ paths:
               properties:
                 linkId: { type: string, format: uuid }
                 positionKey: { type: string, maxLength: 100 }
-                companyName: { type: string }
-                positionTitle: { type: string }
+                companyName: { type: string, maxLength: 200 }
+                positionTitle: { type: string, maxLength: 300 }
+                employmentType: { type: string, maxLength: 100 }
+                experience: { type: string, maxLength: 100 }
+                location: { type: string }
+                notes: { type: string, maxLength: 10000 }
       responses:
         "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/ApplicationResponse" } } } }
         "409": { $ref: "#/components/responses/Error" }
@@ -182,7 +271,9 @@ paths:
       tags: [applications]
       summary: Get an application
       parameters: [{ $ref: "#/components/parameters/Id" }]
-      responses: { "200": { description: application }, "404": { $ref: "#/components/responses/Error" } }
+      responses:
+        "200": { description: application, content: { application/json: { schema: { $ref: "#/components/schemas/ApplicationResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
     patch:
       tags: [applications]
       summary: Update an application
@@ -196,13 +287,17 @@ paths:
               required: [expectedVersion]
               properties:
                 expectedVersion: { type: integer }
-                companyName: { type: string }
-                positionTitle: { type: string }
+                sourceUrl: { type: string, format: uri, maxLength: 4096 }
+                companyName: { type: string, maxLength: 200 }
+                positionTitle: { type: string, maxLength: 300 }
+                employmentType: { type: string, maxLength: 100 }
+                experience: { type: string, maxLength: 100 }
+                location: { type: string }
                 status: { $ref: "#/components/schemas/ApplicationStatus" }
-                notes: { type: string }
+                notes: { type: string, maxLength: 10000 }
                 archived: { type: boolean }
       responses:
-        "200": { description: updated }
+        "200": { description: updated, content: { application/json: { schema: { $ref: "#/components/schemas/ApplicationResponse" } } } }
         "409": { $ref: "#/components/responses/Error" }
     delete:
       tags: [applications]
@@ -211,6 +306,25 @@ paths:
         - { $ref: "#/components/parameters/Id" }
         - { name: If-Match, in: header, required: true, schema: { type: string } }
       responses: { "204": { description: deleted }, "412": { $ref: "#/components/responses/Error" }, "428": { $ref: "#/components/responses/Error" } }
+  /api/v1/applications/manual:
+    post:
+      tags: [applications]
+      summary: Create a manually entered application with an optional source URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [companyName, positionTitle]
+              properties:
+                companyName: { type: string, maxLength: 200 }
+                positionTitle: { type: string, maxLength: 300 }
+                sourceUrl: { type: string, format: uri, maxLength: 4096 }
+                notes: { type: string, maxLength: 10000 }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/ApplicationResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
   /api/v1/applications/{id}/confirm:
     post:
       tags: [applications]
@@ -238,12 +352,121 @@ paths:
                       customLabel: { type: string }
                       sourceCandidateId: { type: string }
       responses: { "200": { description: application + createdEvents }, "409": { $ref: "#/components/responses/Error" } }
+  /api/v1/applications/{id}/essay-questions:
+    get:
+      tags: [essays]
+      summary: List cover-letter questions and current drafts for an application
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: Questions in display order
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/EssayQuestionResponse" } }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [essays]
+      summary: Add a cover-letter question
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EssayQuestionCreate" }
+      responses:
+        "201": { description: created, content: { application/json: { schema: { $ref: "#/components/schemas/EssayQuestionResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/essay-progress:
+    get:
+      tags: [essays]
+      summary: List per-application essay completion counts for the inbox
+      responses:
+        "200":
+          description: Applications that have at least one essay question
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/EssayProgressResponse" } }
+  /api/v1/essay-questions/{id}:
+    patch:
+      tags: [essays]
+      summary: Update a question and its current draft
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EssayQuestionUpdate" }
+      responses:
+        "200": { description: updated, content: { application/json: { schema: { $ref: "#/components/schemas/EssayQuestionResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [essays]
+      summary: Delete a question and all of its saved revisions
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: If-Match, in: header, required: true, schema: { type: string } }
+      responses:
+        "204": { description: deleted }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/v1/essay-questions/{id}/revisions:
+    get:
+      tags: [essays]
+      summary: List saved answer revisions, newest first
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: revisions
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/EssayRevisionResponse" } }
+    post:
+      tags: [essays]
+      summary: Snapshot the currently saved question and answer
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedVersion]
+              properties:
+                expectedVersion: { type: integer, format: int64 }
+                label: { type: string, maxLength: 100 }
+      responses:
+        "201": { description: revision created, content: { application/json: { schema: { $ref: "#/components/schemas/EssayRevisionResponse" } } } }
+  /api/v1/essay-questions/{id}/revisions/{revisionId}/restore:
+    post:
+      tags: [essays]
+      summary: Restore a saved answer as the current draft
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { name: revisionId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedVersion]
+              properties: { expectedVersion: { type: integer, format: int64 } }
+      responses:
+        "200": { description: restored current draft, content: { application/json: { schema: { $ref: "#/components/schemas/EssayQuestionResponse" } } } }
+
   /api/v1/applications/{id}/events:
     get:
       tags: [events]
       summary: List events for an application
       parameters: [{ $ref: "#/components/parameters/Id" }]
-      responses: { "200": { description: event list } }
+      responses:
+        "200":
+          description: event list
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/EventResponse" } }
     post:
       tags: [events]
       summary: Create an event for an application
@@ -257,13 +480,13 @@ paths:
         "422": { $ref: "#/components/responses/Error" }
 
   /api/v1/events/{eventId}:
-    get: { tags: [events], summary: Get an event, parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: event } } }
+    get: { tags: [events], summary: Get an event, parameters: [{ $ref: "#/components/parameters/EventId" }], responses: { "200": { description: event, content: { application/json: { schema: { $ref: "#/components/schemas/EventResponse" } } } } } }
     patch:
       tags: [events]
       summary: Update an event
       parameters: [{ $ref: "#/components/parameters/EventId" }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/EventUpdate" } } } }
-      responses: { "200": { description: updated }, "409": { $ref: "#/components/responses/Error" }, "422": { $ref: "#/components/responses/Error" } }
+      responses: { "200": { description: updated, content: { application/json: { schema: { $ref: "#/components/schemas/EventResponse" } } } }, "409": { $ref: "#/components/responses/Error" }, "422": { $ref: "#/components/responses/Error" } }
     delete:
       tags: [events]
       summary: Delete an event
@@ -374,7 +597,7 @@ components:
       type: apiKey
       in: cookie
       name: SESSION
-      description: Spring Session cookie established by Google OAuth2 login in production.
+      description: Spring Session cookie established by Google or Kakao OAuth2 login in production.
     devUser:
       type: apiKey
       in: header
@@ -476,6 +699,58 @@ components:
           maxLength: 64
           description: IANA timezone identifier such as Asia/Seoul.
         emailEnabled: { type: boolean }
+    ProfileCategory:
+      type: string
+      enum: [PERSONAL, MILITARY, EDUCATION, LANGUAGE, CERTIFICATION, CAREER, AWARD, ACTIVITY, SKILL, PROJECT, STORY]
+    ProfileItemCreate:
+      type: object
+      required: [category]
+      properties:
+        category: { $ref: "#/components/schemas/ProfileCategory" }
+        label: { type: string, minLength: 1, maxLength: 200 }
+        fields:
+          type: object
+          description: Category-specific field key/value pairs. Unsupported keys are rejected.
+          additionalProperties: { type: string, maxLength: 20000 }
+        valueText: { type: string, maxLength: 20000 }
+        details: { type: string, maxLength: 100000 }
+        startedOn: { type: string, format: date }
+        endedOn: { type: string, format: date }
+        sensitive: { type: boolean }
+    ProfileItemUpdate:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion: { type: integer, format: int64 }
+        category: { $ref: "#/components/schemas/ProfileCategory" }
+        label: { type: string, minLength: 1, maxLength: 200 }
+        fields:
+          type: object
+          additionalProperties: { type: string, maxLength: 20000 }
+        valueText: { type: string, maxLength: 20000 }
+        details: { type: string, maxLength: 100000 }
+        startedOn: { type: string, format: date }
+        endedOn: { type: string, format: date }
+        clearDates: { type: boolean }
+        sensitive: { type: boolean }
+    ProfileItemResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        category: { $ref: "#/components/schemas/ProfileCategory" }
+        label: { type: string }
+        fields:
+          type: object
+          additionalProperties: { type: string }
+        valueText: { type: string }
+        details: { type: string }
+        startedOn: { type: [string, "null"], format: date }
+        endedOn: { type: [string, "null"], format: date }
+        sensitive: { type: boolean }
+        sortOrder: { type: integer }
+        version: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     ApplicationStatus:
       type: string
       enum: [INTERESTED, PLANNED, APPLIED, IN_PROGRESS, ACCEPTED, REJECTED, WITHDRAWN]
@@ -508,9 +783,13 @@ components:
       properties:
         id: { type: string, format: uuid }
         linkId: { type: string, format: uuid }
+        sourceUrl: { type: [string, "null"], format: uri }
         positionKey: { type: string }
         companyName: { type: [string, "null"] }
         positionTitle: { type: [string, "null"] }
+        employmentType: { type: [string, "null"] }
+        experience: { type: [string, "null"] }
+        location: { type: [string, "null"] }
         status: { $ref: "#/components/schemas/ApplicationStatus" }
         reviewStatus: { type: string, enum: [PENDING, CONFIRMED, NOT_REQUIRED] }
         appliedAt: { type: [string, "null"], format: date-time }
@@ -518,6 +797,8 @@ components:
         archivedAt: { type: [string, "null"], format: date-time }
         version: { type: integer }
         fieldMeta: { type: object }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     ApplicationPage:
       type: object
       properties:
@@ -526,6 +807,68 @@ components:
         size: { type: integer }
         totalElements: { type: integer }
         totalPages: { type: integer }
+    EssayLimitType:
+      type: string
+      enum: [NONE, CHARACTERS_WITH_SPACES, CHARACTERS_WITHOUT_SPACES, UTF8_BYTES, KOREAN_2_BYTES]
+    EssayQuestionCreate:
+      type: object
+      required: [questionText]
+      properties:
+        questionText: { type: string, minLength: 1, maxLength: 5000 }
+        limitType: { $ref: "#/components/schemas/EssayLimitType" }
+        limitValue: { type: integer, minimum: 1, maximum: 1000000 }
+    EssayQuestionUpdate:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion: { type: integer, format: int64 }
+        questionText: { type: string, minLength: 1, maxLength: 5000 }
+        limitType: { $ref: "#/components/schemas/EssayLimitType" }
+        limitValue: { type: integer, minimum: 1, maximum: 1000000 }
+        answerText: { type: string, maxLength: 100000 }
+        status: { type: string, enum: [DRAFT, COMPLETED] }
+    EssayQuestionResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        applicationId: { type: string, format: uuid }
+        sortOrder: { type: integer }
+        questionText: { type: string }
+        limitType: { $ref: "#/components/schemas/EssayLimitType" }
+        limitValue: { type: [integer, "null"] }
+        answerText: { type: string }
+        status: { type: string, enum: [DRAFT, COMPLETED] }
+        characterCount: { type: integer }
+        characterCountWithoutSpaces: { type: integer }
+        utf8ByteCount: { type: integer }
+        korean2ByteCount: { type: integer }
+        revisionCount: { type: integer, format: int64 }
+        version: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    EssayProgressResponse:
+      type: object
+      required: [applicationId, totalCount, completedCount]
+      properties:
+        applicationId: { type: string, format: uuid }
+        totalCount: { type: integer, format: int64 }
+        completedCount: { type: integer, format: int64 }
+    EssayRevisionResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        questionId: { type: string, format: uuid }
+        revisionNo: { type: integer }
+        label: { type: [string, "null"] }
+        questionText: { type: string }
+        limitType: { $ref: "#/components/schemas/EssayLimitType" }
+        limitValue: { type: [integer, "null"] }
+        answerText: { type: string }
+        characterCount: { type: integer }
+        characterCountWithoutSpaces: { type: integer }
+        utf8ByteCount: { type: integer }
+        korean2ByteCount: { type: integer }
+        createdAt: { type: string, format: date-time }
     EventCreate:
       type: object
       required: [type]
@@ -559,17 +902,25 @@ components:
         applicationId: { type: string, format: uuid }
         type: { $ref: "#/components/schemas/EventType" }
         customLabel: { type: [string, "null"] }
+        sortOrder: { type: integer }
         scheduleKind: { $ref: "#/components/schemas/ScheduleKind" }
         scheduledAt: { type: [string, "null"], format: date-time }
         startAt: { type: [string, "null"], format: date-time }
         endAt: { type: [string, "null"], format: date-time }
         scheduledDate: { type: [string, "null"], format: date }
         timezone: { type: string }
+        daysUntil: { type: [integer, "null"], description: Calendar days until the event in its IANA timezone. }
+        location: { type: [string, "null"] }
+        url: { type: [string, "null"], format: uri }
+        notes: { type: [string, "null"] }
         status: { $ref: "#/components/schemas/EventStatus" }
         result: { $ref: "#/components/schemas/EventResult" }
         confirmedAt: { type: [string, "null"], format: date-time }
         scheduleVersion: { type: integer }
+        fieldMeta: { type: object }
         version: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     RuleCreate:
       type: object
       required: [channel, anchor, mode]

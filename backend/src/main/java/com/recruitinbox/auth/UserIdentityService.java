@@ -31,11 +31,21 @@ public class UserIdentityService {
             return found.get(0);
         }
 
-        UUID userId = jdbc.queryForObject("""
+        List<UUID> created = jdbc.query("""
                 INSERT INTO users (email, email_verified_at, email_enabled, state, version)
-                VALUES (?, now(), false, 'ACTIVE', 1)
+                VALUES (?, CASE WHEN ? IS NULL THEN NULL ELSE now() END, false, 'ACTIVE', 1)
+                ON CONFLICT DO NOTHING
                 RETURNING id
-                """, UUID.class, email);
+                """, (rs, n) -> rs.getObject("id", UUID.class), email, email);
+        // Provider identities are never linked by email alone. If another account
+        // already owns the same address, create an email-less user instead.
+        UUID userId = created.isEmpty()
+                ? jdbc.queryForObject("""
+                        INSERT INTO users (email, email_verified_at, email_enabled, state, version)
+                        VALUES (NULL, NULL, false, 'ACTIVE', 1)
+                        RETURNING id
+                        """, UUID.class)
+                : created.get(0);
         jdbc.update("""
                 INSERT INTO auth_identities (owner_id, provider, provider_subject, version)
                 VALUES (?, ?, ?, 1)

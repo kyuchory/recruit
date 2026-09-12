@@ -11,6 +11,7 @@ import com.recruitinbox.application.ReviewStatus;
 public record ApplicationResponse(
         UUID id,
         UUID linkId,
+        String sourceUrl,
         String positionKey,
         String companyName,
         String positionTitle,
@@ -27,9 +28,9 @@ public record ApplicationResponse(
         Instant createdAt,
         Instant updatedAt) {
 
-    public static ApplicationResponse from(Application a) {
+    public static ApplicationResponse from(Application a, String sourceUrl) {
         return new ApplicationResponse(
-                a.getId(), a.getLinkId(), a.getPositionKey(),
+                a.getId(), a.getLinkId(), sourceUrl, a.getPositionKey(),
                 a.getCompanyName(), a.getPositionTitle(), a.getEmploymentType(), a.getExperience(), a.getLocation(),
                 a.getStatus(), a.getAppliedAt(), a.getNotes(),
                 a.getFieldMeta(), a.getReviewStatus(), a.getArchivedAt(),

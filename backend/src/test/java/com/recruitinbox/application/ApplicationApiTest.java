@@ -85,17 +85,25 @@ class ApplicationApiTest extends com.recruitinbox.support.AbstractIntegrationTes
 
         mvc.perform(get("/api/v1/applications/{id}", id).header("X-Dev-User-Id", ownerA))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.companyName", is("예시회사")));
+                .andExpect(jsonPath("$.companyName", is("예시회사")))
+                .andExpect(jsonPath("$.sourceUrl").value(org.hamcrest.Matchers.startsWith(
+                        "https://careers.example.com/jobs/")));
 
         mvc.perform(patch("/api/v1/applications/{id}", id)
                         .header("X-Dev-User-Id", ownerA)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"expectedVersion":0,"status":"APPLIED","notes":"제출 완료"}"""))
+                                {"expectedVersion":0,"sourceUrl":"https://jobs.example.com/opening/42?utm_source=test",
+                                 "status":"APPLIED","notes":"제출 완료"}"""))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is("APPLIED")))
+                .andExpect(jsonPath("$.sourceUrl", is("https://jobs.example.com/opening/42?utm_source=test")))
                 .andExpect(jsonPath("$.appliedAt").exists())
                 .andExpect(jsonPath("$.version", is(1)));
+
+        mvc.perform(get("/api/v1/links/{id}", linkA).header("X-Dev-User-Id", ownerA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.originalUrl", is("https://jobs.example.com/opening/42?utm_source=test")));
 
         mvc.perform(delete("/api/v1/applications/{id}", id)
                         .header("X-Dev-User-Id", ownerA)
@@ -144,6 +152,55 @@ class ApplicationApiTest extends com.recruitinbox.support.AbstractIntegrationTes
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
                 .andExpect(jsonPath("$.error.fields.linkId").exists());
+    }
+
+    @Test
+    void createsManualApplicationWithoutAUrl() throws Exception {
+        String body = mvc.perform(post("/api/v1/applications/manual")
+                        .header("X-Dev-User-Id", ownerA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyName":"수동 회사","positionTitle":"백엔드 개발자"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.companyName", is("수동 회사")))
+                .andExpect(jsonPath("$.positionTitle", is("백엔드 개발자")))
+                .andExpect(jsonPath("$.reviewStatus", is("NOT_REQUIRED")))
+                .andReturn().getResponse().getContentAsString();
+
+        String linkId = com.jayway.jsonpath.JsonPath.read(body, "$.linkId");
+        mvc.perform(get("/api/v1/links/{id}", linkId).header("X-Dev-User-Id", ownerA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.originalUrl").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.latestRun").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void manualApplicationRequiresCompanyAndPosition() throws Exception {
+        mvc.perform(post("/api/v1/applications/manual")
+                        .header("X-Dev-User-Id", ownerA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyName":"","positionTitle":""}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code", is("VALIDATION_FAILED")))
+                .andExpect(jsonPath("$.error.fields.companyName").exists())
+                .andExpect(jsonPath("$.error.fields.positionTitle").exists());
+    }
+
+    @Test
+    void createsManualApplicationWithAnOptionalSourceUrl() throws Exception {
+        mvc.perform(post("/api/v1/applications/manual")
+                        .header("X-Dev-User-Id", ownerA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyName":"수동 회사","positionTitle":"프론트엔드 개발자",
+                                 "sourceUrl":"https://careers.example.org/jobs/123?utm_campaign=test"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.sourceUrl",
+                        is("https://careers.example.org/jobs/123?utm_campaign=test")));
     }
 
     @Test

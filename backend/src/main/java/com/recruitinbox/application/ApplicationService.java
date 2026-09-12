@@ -1,7 +1,11 @@
 package com.recruitinbox.application;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -13,12 +17,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.recruitinbox.application.dto.ApplicationResponse;
 import com.recruitinbox.application.dto.CreateApplicationRequest;
+import com.recruitinbox.application.dto.ManualCreateApplicationRequest;
 import com.recruitinbox.application.dto.UpdateApplicationRequest;
 import com.recruitinbox.applicationevent.ApplicationEventType;
 import com.recruitinbox.common.error.ApiException;
 import com.recruitinbox.common.error.ErrorCode;
 import com.recruitinbox.common.web.PageResponse;
+import com.recruitinbox.link.Link;
 import com.recruitinbox.link.LinkRepository;
+import com.recruitinbox.link.UrlNormalizer;
 import com.recruitinbox.notification.NotificationPlanner;
 
 @Service
@@ -37,7 +44,7 @@ public class ApplicationService {
 
     @Transactional
     public ApplicationResponse create(UUID ownerId, CreateApplicationRequest req) {
-        links.findByIdAndOwnerId(req.linkId(), ownerId)
+        Link link = links.findByIdAndOwnerId(req.linkId(), ownerId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "link not found"));
         String positionKey = req.positionKey() == null || req.positionKey().isBlank()
                 ? "default" : req.positionKey().trim();
@@ -58,16 +65,50 @@ public class ApplicationService {
         a.setLocation(req.location());
         a.setNotes(req.notes() == null ? "" : req.notes());
         try {
-            return ApplicationResponse.from(applications.saveAndFlush(a));
+            return ApplicationResponse.from(applications.saveAndFlush(a), link.getOriginalUrl());
         } catch (DataIntegrityViolationException e) {
             throw new ApiException(ErrorCode.DUPLICATE, "an application for this link and position already exists");
         }
     }
 
+    @Transactional
+    public ApplicationResponse createManual(UUID ownerId, ManualCreateApplicationRequest req) {
+        String companyName = req.companyName().trim();
+        String positionTitle = req.positionTitle().trim();
+
+        Link link = new Link();
+        link.setOwnerId(ownerId);
+        link.setTitle(companyName + " / " + positionTitle);
+        applySourceUrl(ownerId, link, req.sourceUrl());
+        if (link.getOriginalUrl() == null) {
+            link.setSourceChannel("manual");
+        }
+        link = links.save(link);
+
+        Application application = new Application();
+        application.setOwnerId(ownerId);
+        application.setLinkId(link.getId());
+        application.setPositionKey("default");
+        application.setCompanyName(companyName);
+        application.setPositionTitle(positionTitle);
+        application.setNotes(req.notes() == null ? "" : req.notes().trim());
+        application.setReviewStatus(ReviewStatus.NOT_REQUIRED);
+
+        String userEditedAt = Instant.now().toString();
+        java.util.Map<String, Object> meta = new java.util.HashMap<>();
+        markUserEdited(meta, "companyName", userEditedAt);
+        markUserEdited(meta, "positionTitle", userEditedAt);
+        application.setFieldMeta(meta);
+
+        return ApplicationResponse.from(applications.saveAndFlush(application), link.getOriginalUrl());
+    }
+
     @Transactional(readOnly = true)
     public ApplicationResponse get(UUID ownerId, UUID id) {
-        return ApplicationResponse.from(applications.findByIdAndOwnerId(id, ownerId)
-                .orElseThrow(() -> ApiException.notFound("application")));
+        Application application = applications.findByIdAndOwnerId(id, ownerId)
+                .orElseThrow(() -> ApiException.notFound("application"));
+        Link link = requireLink(ownerId, application.getLinkId());
+        return ApplicationResponse.from(application, link.getOriginalUrl());
     }
 
     @Transactional(readOnly = true)
@@ -76,7 +117,13 @@ public class ApplicationService {
         Page<Application> result = status == null
                 ? applications.findByOwnerIdOrderByCreatedAtDescIdDesc(ownerId, pageable)
                 : applications.findByOwnerIdAndStatusOrderByCreatedAtDescIdDesc(ownerId, status, pageable);
-        return PageResponse.of(result, ApplicationResponse::from);
+        Set<UUID> linkIds = result.getContent().stream().map(Application::getLinkId).collect(Collectors.toSet());
+        Map<UUID, Link> linksById = links.findByOwnerIdAndIdIn(ownerId, linkIds).stream()
+                .collect(Collectors.toMap(Link::getId, Function.identity()));
+        return PageResponse.of(result, application -> {
+            Link link = linksById.get(application.getLinkId());
+            return ApplicationResponse.from(application, link == null ? null : link.getOriginalUrl());
+        });
     }
 
     @Transactional
@@ -84,10 +131,16 @@ public class ApplicationService {
         Application a = applications.findByIdAndOwnerId(id, ownerId)
                 .orElseThrow(() -> ApiException.notFound("application"));
         requireVersion(a.getVersion(), req.expectedVersion());
+        Link link = requireLink(ownerId, a.getLinkId());
 
         java.util.Map<String, Object> meta = a.getFieldMeta() == null
                 ? new java.util.HashMap<>() : new java.util.HashMap<>(a.getFieldMeta());
         String userEditedAt = Instant.now().toString();
+
+        if (req.sourceUrl() != null) {
+            applySourceUrl(ownerId, link, req.sourceUrl());
+            markUserEdited(meta, "sourceUrl", userEditedAt);
+        }
 
         if (req.companyName() != null) {
             a.setCompanyName(req.companyName());
@@ -122,7 +175,10 @@ public class ApplicationService {
         }
 
         try {
-            return ApplicationResponse.from(applications.saveAndFlush(a));
+            links.saveAndFlush(link);
+            return ApplicationResponse.from(applications.saveAndFlush(a), link.getOriginalUrl());
+        } catch (DataIntegrityViolationException e) {
+            throw new ApiException(ErrorCode.DUPLICATE, "this URL is already used by another saved link");
         } catch (OptimisticLockingFailureException e) {
             throw ApiException.versionConflict();
         }
@@ -155,6 +211,27 @@ public class ApplicationService {
 
     private static void markUserEdited(java.util.Map<String, Object> meta, String field, String at) {
         meta.put(field, java.util.Map.of("source", "USER", "userEditedAt", at));
+    }
+
+    private Link requireLink(UUID ownerId, UUID linkId) {
+        return links.findByIdAndOwnerId(linkId, ownerId)
+                .orElseThrow(() -> ApiException.notFound("link"));
+    }
+
+    private void applySourceUrl(UUID ownerId, Link link, String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return;
+        }
+        UrlNormalizer.Normalized normalized = UrlNormalizer.normalize(rawUrl);
+        links.findByOwnerIdAndUrlHash(ownerId, normalized.urlHash())
+                .filter(existing -> !existing.getId().equals(link.getId()))
+                .ifPresent(existing -> {
+                    throw new ApiException(ErrorCode.DUPLICATE, "this URL is already used by another saved link");
+                });
+        link.setOriginalUrl(normalized.original());
+        link.setNormalizedUrl(normalized.normalized());
+        link.setUrlHash(normalized.urlHash());
+        link.setSourceChannel("url");
     }
 
     private void requireVersion(Long actual, Long expected) {

@@ -22,6 +22,7 @@ import com.recruitinbox.common.error.ApiException;
 import com.recruitinbox.common.error.ErrorCode;
 import com.recruitinbox.parser.ExtractionRunRepository;
 import com.recruitinbox.parser.ExtractionRunStatus;
+import com.recruitinbox.link.LinkRepository;
 
 /**
  * {@code POST /applications/{id}/confirm}: user-approved proposal -> confirmed
@@ -40,12 +41,14 @@ public class ConfirmService {
     private final ApplicationRepository applications;
     private final ApplicationEventRepository events;
     private final ExtractionRunRepository runs;
+    private final LinkRepository links;
 
     public ConfirmService(ApplicationRepository applications, ApplicationEventRepository events,
-            ExtractionRunRepository runs) {
+            ExtractionRunRepository runs, LinkRepository links) {
         this.applications = applications;
         this.events = events;
         this.runs = runs;
+        this.links = links;
     }
 
     public record Result(ApplicationResponse application, List<EventResponse> createdEvents) {
@@ -112,7 +115,10 @@ public class ConfirmService {
             }
         }
 
-        return new Result(ApplicationResponse.from(app), created);
+        String sourceUrl = links.findByIdAndOwnerId(app.getLinkId(), ownerId)
+                .map(com.recruitinbox.link.Link::getOriginalUrl)
+                .orElse(null);
+        return new Result(ApplicationResponse.from(app, sourceUrl), created);
     }
 
     private void applyField(Application app, Map<String, Object> meta, String key, String proposed,

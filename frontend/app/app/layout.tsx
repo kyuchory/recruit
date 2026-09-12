@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AuthGate } from "@/components/auth-gate";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -14,12 +15,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Link href="/app/notifications" className="hover:text-gray-900">
             알림함
           </Link>
+          <Link href="/app/profile" className="hover:text-gray-900">
+            내 지원정보
+          </Link>
           <Link href="/app/settings" className="hover:text-gray-900">
             설정
           </Link>
         </nav>
       </header>
-      {children}
+      <AuthGate>{children}</AuthGate>
     </div>
   );
 }

@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.recruitinbox.application.dto.ApplicationResponse;
 import com.recruitinbox.application.dto.ConfirmRequest;
 import com.recruitinbox.application.dto.CreateApplicationRequest;
+import com.recruitinbox.application.dto.ManualCreateApplicationRequest;
 import com.recruitinbox.application.dto.UpdateApplicationRequest;
 import com.recruitinbox.common.security.CurrentUserProvider;
 import com.recruitinbox.common.web.PageResponse;
@@ -57,6 +58,12 @@ public class ApplicationController {
     @ResponseStatus(HttpStatus.CREATED)
     public ApplicationResponse create(@RequestBody @Valid CreateApplicationRequest req) {
         return service.create(currentUser.requireCurrentUserId(), req);
+    }
+
+    @PostMapping("/manual")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApplicationResponse createManual(@RequestBody @Valid ManualCreateApplicationRequest req) {
+        return service.createManual(currentUser.requireCurrentUserId(), req);
     }
 
     @PatchMapping("/{id}")

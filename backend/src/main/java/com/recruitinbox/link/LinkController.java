@@ -53,7 +53,7 @@ public class LinkController {
         UUID owner = currentUser.requireCurrentUserId();
         var link = links.findByIdAndOwnerId(id, owner).orElseThrow(() -> ApiException.notFound("link"));
         var apps = applications.findByOwnerIdAndLinkId(owner, id).stream()
-                .map(ApplicationResponse::from).toList();
+                .map(application -> ApplicationResponse.from(application, link.getOriginalUrl())).toList();
         var latestRun = runs.findFirstByLinkIdAndOwnerIdOrderByGenerationDesc(id, owner)
                 .map(ExtractionRunResponse::from).orElse(null);
         return LinkDetailResponse.of(link, apps, latestRun);

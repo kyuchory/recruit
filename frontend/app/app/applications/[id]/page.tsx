@@ -20,6 +20,7 @@ import {
   NOTIFICATION_CHANNEL_LABELS,
   NOTIFICATION_STATUS_LABELS,
   RuleResponse,
+  ScheduleKind,
 } from "@/lib/types";
 import { Badge, Button, Field, inputClass } from "@/components/ui";
 
@@ -67,33 +68,12 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="space-y-6">
-      <Link href="/app" className="text-sm text-blue-600 hover:underline">
-        ← 지원현황
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link href="/app" className="text-sm text-blue-600 hover:underline">← 지원현황</Link>
+        <Link href={`/app/applications/${id}/essays`} className="text-sm text-blue-600 hover:underline">자기소개서 작성 →</Link>
+      </div>
 
       <ApplicationHeader app={app} onSaved={invalidate} />
-
-      {run && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="font-medium">분석 상태</span>
-            <Badge tone={run.status === "SUCCEEDED" ? "green" : run.status === "FAILED" ? "red" : "amber"}>
-              {EXTRACTION_STATUS_LABELS[run.status]}
-            </Badge>
-          </div>
-          {run.status === "SUCCEEDED" && app.reviewStatus === "PENDING" && (
-            <ConfirmPanel appId={id} version={app.version} result={run.result} runId={run.id} onDone={invalidate} />
-          )}
-          {(run.status === "NEEDS_INPUT" || run.status === "FAILED") && (
-            <p className="mt-2 text-gray-500">
-              자동 분석이 어려웠습니다. 아래에서 회사·직무·일정을 직접 입력하세요.
-            </p>
-          )}
-          {Array.isArray(run.warnings) && run.warnings.length > 0 && (
-            <p className="mt-2 text-xs text-gray-400">warnings: {run.warnings.join(", ")}</p>
-          )}
-        </div>
-      )}
 
       <section>
         <h2 className="mb-2 text-sm font-semibold text-gray-700">전형 타임라인</h2>
@@ -107,6 +87,26 @@ export default function ApplicationDetailPage({ params }: { params: Promise<{ id
         </div>
         <AddEvent appId={id} onAdded={invalidate} />
       </section>
+
+      {run && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-medium">분석 상태</span>
+            <Badge tone={run.status === "SUCCEEDED" ? "green" : run.status === "FAILED" ? "red" : "amber"}>
+              {EXTRACTION_STATUS_LABELS[run.status]}
+            </Badge>
+          </div>
+          {run.status === "SUCCEEDED" && app.reviewStatus === "PENDING" && (
+            <ConfirmPanel appId={id} version={app.version} result={run.result} runId={run.id} onDone={invalidate} />
+          )}
+          {(run.status === "NEEDS_INPUT" || run.status === "FAILED") && (
+            <p className="mt-2 text-gray-500">자동 분석이 어려웠습니다. 위에서 회사·직무·일정을 직접 입력하세요.</p>
+          )}
+          {Array.isArray(run.warnings) && run.warnings.length > 0 && (
+            <p className="mt-2 text-xs text-gray-400">warnings: {run.warnings.join(", ")}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -115,6 +115,7 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
   const router = useRouter();
   const [company, setCompany] = useState(app.companyName ?? "");
   const [position, setPosition] = useState(app.positionTitle ?? "");
+  const [sourceUrl, setSourceUrl] = useState(app.sourceUrl ?? "");
   const [status, setStatus] = useState(app.status);
   const [archived, setArchived] = useState(!!app.archivedAt);
   const [notice, setNotice] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
@@ -122,6 +123,7 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
     mutationFn: () =>
       api.patch<ApplicationResponse>(`/api/v1/applications/${app.id}`, {
         expectedVersion: app.version,
+        ...(sourceUrl.trim() ? { sourceUrl: sourceUrl.trim() } : {}),
         companyName: company,
         positionTitle: position,
         status,
@@ -147,6 +149,28 @@ function ApplicationHeader({ app, onSaved }: { app: ApplicationResponse; onSaved
         <Field label="직무">
           <input value={position} onChange={(e) => setPosition(e.target.value)} className={inputClass} />
         </Field>
+        <div className="sm:col-span-2">
+          <Field label="채용공고 URL">
+            <input
+              type="url"
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder="https://careers.example.com/job/123"
+              maxLength={4096}
+              className={inputClass}
+            />
+          </Field>
+          {app.sourceUrl && (
+            <a
+              href={app.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-xs text-blue-600 hover:underline"
+            >
+              현재 공고 새 탭에서 열기 ↗
+            </a>
+          )}
+        </div>
         <Field label="지원 상태">
           <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} className={inputClass}>
             {(
@@ -296,6 +320,10 @@ function AddEvent({ appId, onAdded }: { appId: string; onAdded: () => void }) {
 
 function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () => void }) {
   const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [scheduleKind, setScheduleKind] = useState<ScheduleKind>(event.scheduleKind);
+  const [scheduledAt, setScheduledAt] = useState(toDateTimeLocal(event.scheduledAt ?? event.startAt));
+  const [scheduledDate, setScheduledDate] = useState(event.scheduledDate ?? "");
   const rulesQ = useQuery({
     queryKey: ["rules", event.id],
     queryFn: () => api.get<RuleResponse[]>(`/api/v1/events/${event.id}/notification-rules`),
@@ -340,6 +368,44 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
     mutationFn: () => api.del(`/api/v1/events/${event.id}`, event.version),
     onSuccess: onChanged,
   });
+  const updateSchedule = useMutation({
+    mutationFn: () => {
+      if (scheduleKind === "UNKNOWN") {
+        return api.patch<EventResponse>(`/api/v1/events/${event.id}`, {
+          expectedVersion: event.version,
+          clearSchedule: true,
+        });
+      }
+      if (scheduleKind === "ROLLING" || scheduleKind === "UNTIL_FILLED") {
+        return api.patch<EventResponse>(`/api/v1/events/${event.id}`, {
+          expectedVersion: event.version,
+          scheduleKind,
+        });
+      }
+      if (scheduleKind === "DATE_ONLY") {
+        if (!scheduledDate) throw new Error("날짜를 입력해 주세요.");
+        return api.patch<EventResponse>(`/api/v1/events/${event.id}`, {
+          expectedVersion: event.version,
+          scheduleKind,
+          scheduledDate,
+        });
+      }
+      if (!scheduledAt) throw new Error("날짜와 시간을 입력해 주세요.");
+      const iso = new Date(scheduledAt).toISOString();
+      return api.patch<EventResponse>(`/api/v1/events/${event.id}`, {
+        expectedVersion: event.version,
+        scheduleKind,
+        scheduledAt: iso,
+        startAt: iso,
+      });
+    },
+    onSuccess: () => {
+      setEditing(false);
+      onChanged();
+      qc.invalidateQueries({ queryKey: ["rules", event.id] });
+      qc.invalidateQueries({ queryKey: ["event-notifications", event.id] });
+    },
+  });
 
   const label = event.customLabel ?? EVENT_LABELS[event.type];
   const when =
@@ -363,6 +429,20 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
           </Badge>
           <button
             type="button"
+            className="ml-1 rounded px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+            onClick={() => {
+              setScheduleKind(event.scheduleKind);
+              setScheduledAt(toDateTimeLocal(event.scheduledAt ?? event.startAt));
+              setScheduledDate(event.scheduledDate ?? "");
+              setEditing(true);
+              updateSchedule.reset();
+            }}
+            disabled={updateSchedule.isPending}
+          >
+            수정
+          </button>
+          <button
+            type="button"
             title="이 전형 삭제"
             className="ml-1 text-gray-300 hover:text-red-600"
             onClick={() => {
@@ -376,6 +456,57 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
           </button>
         </div>
       </div>
+      {editing && (
+        <div className="mt-3 rounded-md border border-gray-200 bg-gray-50 p-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label="일정 방식">
+              <select
+                value={scheduleKind}
+                onChange={(e) => setScheduleKind(e.target.value as ScheduleKind)}
+                className={inputClass}
+              >
+                <option value="EXACT">날짜와 시간</option>
+                <option value="DATE_ONLY">날짜만</option>
+                <option value="UNKNOWN">날짜 미정</option>
+                {event.type === "DOCUMENT_DEADLINE" && <option value="ROLLING">상시 채용</option>}
+                {event.type === "DOCUMENT_DEADLINE" && <option value="UNTIL_FILLED">채용 시 마감</option>}
+              </select>
+            </Field>
+            {scheduleKind === "EXACT" && (
+              <Field label="일시">
+                <input
+                  type="datetime-local"
+                  value={scheduledAt}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+            )}
+            {scheduleKind === "DATE_ONLY" && (
+              <Field label="날짜">
+                <input
+                  type="date"
+                  value={scheduledDate}
+                  onChange={(e) => setScheduledDate(e.target.value)}
+                  className={inputClass}
+                />
+              </Field>
+            )}
+            <Button onClick={() => updateSchedule.mutate()} disabled={updateSchedule.isPending}>
+              {updateSchedule.isPending ? "저장 중…" : "저장"}
+            </Button>
+            <Button variant="ghost" onClick={() => setEditing(false)} disabled={updateSchedule.isPending}>
+              취소
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-gray-500">
+            일정을 수정하면 기존 알림 예약은 취소됩니다. 저장 후 변경된 일정을 다시 확인해 주세요.
+          </p>
+          {updateSchedule.isError && (
+            <p className="mt-1 text-xs text-red-600">{(updateSchedule.error as Error).message}</p>
+          )}
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {(event.scheduleKind === "EXACT" || event.scheduleKind === "DATE_ONLY") && !event.confirmedAt && (
           <Button variant="ghost" onClick={() => confirm.mutate()} disabled={confirm.isPending}>
@@ -447,4 +578,12 @@ function EventCard({ event, onChanged }: { event: EventResponse; onChanged: () =
       )}
     </div>
   );
+}
+
+function toDateTimeLocal(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

@@ -1,5 +1,7 @@
 package com.recruitinbox.link;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +22,8 @@ public interface LinkRepository extends JpaRepository<Link, UUID> {
 
     /** URL de-dupe within one owner ({@code uq_links_owner_urlhash}). */
     Optional<Link> findByOwnerIdAndUrlHash(UUID ownerId, String urlHash);
+
+    List<Link> findByOwnerIdAndIdIn(UUID ownerId, Collection<UUID> ids);
 
     Page<Link> findByOwnerIdOrderByCreatedAtDescIdDesc(UUID ownerId, Pageable pageable);
 

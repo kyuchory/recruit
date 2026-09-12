@@ -11,12 +11,102 @@ export type EventStatus = "UNSCHEDULED" | "SCHEDULED" | "COMPLETED" | "CANCELLED
 export type EventResult = "NOT_STARTED" | "WAITING" | "PASSED" | "FAILED" | "SKIPPED";
 export type ReviewStatus = "PENDING" | "CONFIRMED" | "NOT_REQUIRED";
 export type NotificationChannel = "EMAIL" | "IN_APP" | "WEB_PUSH" | "FCM" | "APNS";
+
+export interface MeResponse {
+  id: string;
+  email: string | null;
+  timezone: string;
+}
+
+export interface AuthProvidersResponse {
+  google: boolean;
+  kakao: boolean;
+}
+
+export type EssayLimitType =
+  | "NONE"
+  | "CHARACTERS_WITH_SPACES"
+  | "CHARACTERS_WITHOUT_SPACES"
+  | "UTF8_BYTES"
+  | "KOREAN_2_BYTES";
+export type EssayStatus = "DRAFT" | "COMPLETED";
+
+export interface EssayQuestionResponse {
+  id: string;
+  applicationId: string;
+  sortOrder: number;
+  questionText: string;
+  limitType: EssayLimitType;
+  limitValue: number | null;
+  answerText: string;
+  status: EssayStatus;
+  characterCount: number;
+  characterCountWithoutSpaces: number;
+  utf8ByteCount: number;
+  korean2ByteCount: number;
+  revisionCount: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EssayProgressResponse {
+  applicationId: string;
+  totalCount: number;
+  completedCount: number;
+}
+
+export interface EssayRevisionResponse {
+  id: string;
+  questionId: string;
+  revisionNo: number;
+  label: string | null;
+  questionText: string;
+  limitType: EssayLimitType;
+  limitValue: number | null;
+  answerText: string;
+  characterCount: number;
+  characterCountWithoutSpaces: number;
+  utf8ByteCount: number;
+  korean2ByteCount: number;
+  createdAt: string;
+}
+
+export type ProfileCategory =
+  | "PERSONAL"
+  | "MILITARY"
+  | "EDUCATION"
+  | "LANGUAGE"
+  | "CERTIFICATION"
+  | "CAREER"
+  | "AWARD"
+  | "ACTIVITY"
+  | "SKILL"
+  | "PROJECT"
+  | "STORY";
+
+export interface ProfileItemResponse {
+  id: string;
+  category: ProfileCategory;
+  label: string;
+  fields: Record<string, string>;
+  valueText: string;
+  details: string;
+  startedOn: string | null;
+  endedOn: string | null;
+  sensitive: boolean;
+  sortOrder: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
 /** Friendly names the inbox API returns for Notification.status (see NotificationInboxController). */
 export type NotificationDeliveryStatus = "SCHEDULED" | "PROCESSING" | "SENT" | "PARTIAL" | "FAILED" | "CANCELLED";
 
 export interface ApplicationResponse {
   id: string;
   linkId: string;
+  sourceUrl: string | null;
   positionKey: string;
   companyName: string | null;
   positionTitle: string | null;
@@ -51,6 +141,7 @@ export interface EventResponse {
   endAt: string | null;
   scheduledDate: string | null;
   timezone: string;
+  daysUntil: number | null;
   location: string | null;
   url: string | null;
   notes: string;

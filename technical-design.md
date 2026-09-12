@@ -2,7 +2,7 @@
 
 작성일: 2026-09-10 · 설계 버전: 1.0 · 대상: 웹 MVP를 구현하는 프런트엔드·백엔드 개발자
 
-이 문서는 **공고 URL 저장 → 정보 추출 → 사용자 확인 → 전형별 일정 관리 → 알림**을 구현하기 위한 설계다. 기존 대화와 첨부된 Notion 표를 확인했다. 표에 있는 `서류 / 회사 / 원서 마감일 / URL / 코테 / 1차면접 / 2차면접`을 초기 화면의 기준으로 삼는다. 사용자 개인 지원 기록이 데이터의 중심이며, 공고 수집 플랫폼 전체를 만드는 범위는 아니다.
+이 문서는 **공고 URL 저장 → 정보 추출 → 사용자 확인 → 전형별 일정 관리 → 알림**을 구현하기 위한 설계다. 기존 대화와 첨부된 Notion 표를 참고하되 초기 화면은 `상태 / 회사·직무 / 서류 / NCS / 코테 / 1차 / 2차 / 관리`로 구성한다. URL은 행에 표시하지 않고 회사·직무의 원본 링크로 사용한다. 사용자 개인 지원 기록이 데이터의 중심이며, 공고 수집 플랫폼 전체를 만드는 범위는 아니다.
 
 이 문서의 시간·용량·횟수·성능 수치는 별도 표시가 없으면 **MVP의 제안 기본값**이다. 실측 성능이나 외부 서비스의 보장치가 아니다. 기술 문서는 공식 자료로 확인했으며, 구체적인 모델 가격·사이트별 수집 성공률은 가정하지 않는다.
 
@@ -13,6 +13,7 @@
 취준생은 여러 사이트에서 찾은 공고의 회사·직무·마감일과 지원 이후 코딩테스트·NCS·AI역량검사·면접 일정을 직접 표에 입력한다. 이 서비스는 입력을 줄이고, **확인된 일정에 대해 필요한 시점에 알림을 보내는 것**을 핵심 가치로 한다.
 
 - URL을 넣으면 즉시 지원 기록 한 행이 생긴다. 분석은 백그라운드에서 진행한다.
+- URL은 직접 등록 또는 상세에서 등록·수정할 수 있고, 지원현황의 회사·직무를 클릭하면 원본 공고를 새 탭으로 연다.
 - 회사·직무·전형·날짜의 추출 근거를 보여주고 사용자가 수정·확정한다.
 - 일정 없는 전형도 `날짜 미정`으로 남겨, 이후 안내받은 일정을 쉽게 입력한다.
 - 각 전형의 진행 상태와 합격·불합격 결과를 독립적으로 관리한다.
@@ -39,15 +40,17 @@
 [공고 URL 붙여넣기________________] [저장] [직접 추가]
 [전체] [지원 예정] [진행 중] [이번 주 일정] [확인 필요]
 
-서류결과 | 회사 / 직무       | 원서 마감일       | URL | 코테      | 1차면접 | 2차면접 | 다음 일정 / 알림
-대기     | 예시기업 / 백엔드 | 9/18 17:00 D-8    | 열기 | 날짜 미정 | -       | -       | 서류 마감 / D-1
-합격     | 예시공사 / 전산   | 접수 완료         | 열기 | NCS 9/20 | 날짜 미정| -       | NCS / D-1, 3h
-확인필요 | 분석 중…          | 확인 전           | 열기 | -        | -       | -       | 알림 미예약
+상태     | 회사 / 직무       | 서류             | NCS      | 코테      | 1차면접 | 2차면접 | 관리
+대기     | 예시기업 / 백엔드↗| 9/18 17:00 D-8   | -        | 날짜 미정 | -       | -       | 수정
+합격     | 예시공사 / 전산↗  | 접수 완료         | NCS 9/20 | -         | 날짜 미정| -       | 수정
+확인필요 | 분석 중…          | 확인 전           | -        | -         | -       | -       | 수정
 ```
 
 표의 코테·면접 셀은 `applications`의 고정 컬럼이 아니라 `application_events`를 화면에서 묶어 표시한 값이다. 같은 유형이 두 번 있으면 가장 가까운 미완료 일정과 `+1`을 표시하고 상세 패널에서 전부 보여준다. NCS·AI검사도 열을 켜거나 상세에서 관리한다. 날짜 미정은 `미정`, 날짜만 있으면 `시간 확인 필요`, 없는 전형은 `-`로 구분한다.
 
 분석 결과 패널에는 `추출값 / 원문 근거 / 수정 입력 / 일정별 알림 설정`을 둔다. 저장 성공과 분석 성공은 별개다. 분석에 실패해도 행을 유지하고 `직접 입력`으로 전환한다. 초기 표에는 가로 스크롤·고정 회사 열·상태 배지·행 상세 패널만 구현한다.
+
+지원현황 표에는 URL 열을 두지 않는다. URL이 있으면 회사·직무를 원본 공고로 연결하고 새 탭으로 연다. 내부 관리 화면은 관리 열의 `수정` 링크를 유지한다. URL이 없으면 회사·직무가 수정 화면으로 이동하며 수동 등록에서도 URL은 선택 사항이다.
 
 ## 2. 핵심 설계 결정
 
@@ -256,7 +259,7 @@ erDiagram
 
 ### 7.1 공통 규칙
 
-- 최종 컬럼·타입·NULL·기본값·PK/FK·CHECK·인덱스 정의는 **부록 A의 전체 DDL** 및 함께 제공하는 `schema.sql`이 기준이다. 생략된 컬럼이 없다.
+- 부록 A와 루트 `schema.sql`은 v1.0 설계 이력이다. 현재 실행 스키마의 유일한 기준은 `backend/src/main/resources/db/migration/`의 Flyway V1–V8이며, 사람이 읽는 현행 요약은 `docs/DATABASE_SCHEMA.md`다. 새 변경은 기존 migration을 고치지 않고 다음 버전으로 추가한다.
 - 모든 테이블에 `created_at`, `updated_at`을 `timestamptz NOT NULL DEFAULT now()`로 둔다. DB trigger가 updated_at을 갱신한다. 낙관적 `version`은 서비스의 조건부 UPDATE 또는 JPA @Version으로 갱신한다.
 - ID는 UUID PK, idempotency 테이블만 복합 PK다. 상태는 PostgreSQL native enum 대신 `varchar + CHECK`를 사용해 Flyway migration으로 확장한다.
 - DDL에서 NOT NULL이 없는 컬럼만 NULL 허용이다. PK는 암묵적으로 NOT NULL이다.
@@ -430,7 +433,7 @@ Base path `/api/v1`, JSON UTF-8, 필드는 camelCase, UUID는 문자열. 예제�
 - 인증 전 OAuth·세션 조회·로그아웃은 Idempotency-Key 예외. 사용자별 작업 생성 제한은 429와 Retry-After.
 - 소유자가 다른 리소스는 404. UUID 형식 오류는 400. 유효하지만 모순된 날짜·스키마는 422.
 
-추가 입력 검증: companyName 1~200자, position 1~300자, title 1~200자, notes 최대 10,000자, URL 최대 4,096자, Job당 이미지 최대 3개, 이벤트당 Rule 최대 5개다. PATCH Application의 허용 필드는 companyName·position·status·notes이며 URL 변경은 받지 않는다. 원 공고를 바꾸려면 새 지원 건을 생성한다. source·confirmedAt·scheduleVersion·userId는 서버가 설정하고 클라이언트 입력을 거절한다. Event 입력의 confirmed는 서버가 confirmed_at으로 변환한다. 날짜·시각·timezone 수정 시 confirmed가 생략되면 기존 확인을 해제하고 알림을 취소한다. status·result는 본문에 정의한 상태값만 허용한다.
+추가 입력 검증: companyName 1~200자, position 1~300자, title 1~200자, notes 최대 10,000자, URL 최대 4,096자, Job당 이미지 최대 3개, 이벤트당 Rule 최대 5개다. PATCH Application은 sourceUrl·companyName·position·status·notes를 허용한다. sourceUrl은 http/https만 받고 소유 Link의 original_url/normalized_url/url_hash를 갱신하며 동일 사용자의 다른 Link와 중복이면 거절한다. 이 수정은 원본 참조만 바꾸고 분석 작업은 자동 생성하지 않는다. source·confirmedAt·scheduleVersion·userId는 서버가 설정하고 클라이언트 입력을 거절한다. Event 입력의 confirmed는 서버가 confirmed_at으로 변환한다. 날짜·시각·timezone 수정 시 기존 확인을 해제하고 알림을 취소한다. status·result는 본문에 정의한 상태값만 허용한다.
 
 ### 10.2 엔드포인트별 계약
 
@@ -445,10 +448,10 @@ Base path `/api/v1`, JSON UTF-8, 필드는 camelCase, UUID는 문자열. 예제�
 | GET /me | 예 | 없음 | `{ "id":"u1","displayName":"지원자","timezone":"Asia/Seoul","notificationsEnabled":true,"emailAvailable":true }` | 200 |
 | PATCH /me | 예 | `{ "timezone":"Asia/Seoul","notificationsEnabled":false }` | 갱신된 Me; 이 API는 행잠금 last-write-wins | 200,422 |
 | POST /applications/imports | 예 | `{ "url":"https://careers.example.com/jobs/123" }` | `{ "applicationId":"a1","parseJobId":"j1","status":"PENDING" }` | 202,409,422 |
-| POST /applications | 예 | `{ "companyName":"예시기업","position":"백엔드","notes":"직접 등록" }` | Application, reviewStatus=CONFIRMED | 201,422 |
+| POST /applications | 예 | `{ "companyName":"예시기업","position":"백엔드","sourceUrl":"https://careers.example.com/jobs/123","notes":"직접 등록" }` | Application, sourceUrl 선택, reviewStatus=CONFIRMED | 201,409,422 |
 | GET /applications | 예 | ?status=APPLIED&q=백엔드&archived=false&limit=30 | `{ "items":[ApplicationSummary],"nextCursor":null }` | 200,400 |
 | GET /applications/{id} | 예 | 없음 | Application + events 배열, ETag | 200 |
-| PATCH /applications/{id} | 예 | `{ "status":"APPLIED","notes":"제출 완료" }` | 갱신 Application, ETag | 200,412,422,428 |
+| PATCH /applications/{id} | 예 | `{ "sourceUrl":"https://careers.example.com/jobs/456","status":"APPLIED","notes":"제출 완료" }` | 갱신 Application(sourceUrl 포함), ETag. URL 수정은 자동 재분석 안 함 | 200,409,412,422,428 |
 | DELETE /applications/{id} | 예 | If-Match, body 없음 | body 없음; archivedAt 설정·알림 취소 | 204,412,428 |
 | POST /applications/{id}/restore | 예 | `{ "version":3 }` | Application, archivedAt=null | 200,412,422 |
 | POST /applications/{id}/parse-jobs | 예 | `{ "inputKind":"URL" }` 또는 TEXT/IMAGE 입력 | `{ "id":"j2","status":"PENDING" }` | 202,409,422 |
@@ -471,6 +474,20 @@ Base path `/api/v1`, JSON UTF-8, 필드는 camelCase, UUID는 문자열. 예제�
 
 OAuth 시작 경로는 Spring의 `/oauth2/authorization/google`을 위 공개 경로로 매핑하거나 redirect하는 방식으로 구현한다. callback은 Spring Security 처리 URL과 동일하게 설정한다. `GET /auth/csrf`는 로그인 직후 토큰 초기화에 사용한다.
 
+현재 구현은 공개 `GET /api/v1/auth/providers`와 `GET /api/v1/auth/start/{provider}`를 둔다. start endpoint는 `returnTo`가 `/`로 시작하는 내부 상대 경로인지 검증해 Spring Session에 저장하고 Spring Security authorization endpoint로 보낸다. 성공 handler는 `OAuth2AuthenticationToken.authorizedClientRegistrationId`로 GOOGLE/KAKAO를 결정하고 세션 UID를 만든 뒤 저장된 경로로 복귀한다. `/app/**`의 클라이언트 auth gate는 `/api/v1/me`의 401을 로그인 화면으로 연결한다. Kakao 설정은 `application-kakao.yml`로 격리해 자격증명이 없는 기본/Google 환경의 기동을 보장한다.
+
+지원현황 정렬은 현재 조회한 최대 100개 지원과 TanStack Query에 적재된 이벤트를 클라이언트에서 결합한다. Application 상태 필터는 빠른 필터와 AND 조건으로 적용한다. 전형 날짜 정렬은 취소·완료되지 않은 같은 유형 이벤트 중 가장 이른 유효 일시를 대표값으로 사용하고, 대표값이 없는 행은 정렬 방향과 관계없이 마지막에 둔다. 목록 규모가 100개를 넘겨 서버 페이지네이션을 사용하게 되면 같은 규칙을 목록 projection과 서버 정렬 query로 이전한다.
+
+자기소개서 V6은 `application_essay_questions`에 현재 편집본을 두고 `application_essay_revisions`에 사용자 명시 저장본을 append-only로 남긴다. 두 테이블 모두 owner_id를 가지며 Application/Question에 복합 소유권 FK를 적용한다. 답변은 Unicode code point 글자 수, Unicode whitespace 제외 글자 수, UTF-8 실제 byte, ASCII 1·비ASCII 2 byte 환산을 서버에서 재계산한다. 프론트도 같은 지표를 즉시 표시하지만 저장 응답의 서버 계산값이 기준이다. 초안 수정과 복원은 expectedVersion으로 충돌을 감지하고, 질문 삭제는 FK cascade로 이력을 함께 지운다.
+
+개인 지원정보 V7은 `career_profile_items`를 사용자 소유 aggregate로 두고, V8은 분류별 전용 값을 담는 `field_values`를 추가한다. API의 `fields` 객체는 category별 허용 키만 받을 수 있고, 화면은 해당 정의에 맞는 별도 양식을 렌더링한다. category·표시 label·기간·민감 표시·순서만 조회 가능한 구조 필드이며, `field_values` JSON과 이전 버전의 `value_text`·`details`는 AES-256-GCM과 항목별 무작위 nonce로 각각 암호화한다. 로컬 기본 프로필은 저장 편의를 위해 소스에 명시된 개발 전용 고정 키를 사용하고, `prod` 프로필은 반드시 `PROFILE_ENCRYPTION_KEY`로 별도 base64 32바이트 키를 주입한다. 운영 키가 없으면 기동이 실패하고 키 회전 전에는 key id와 재암호화 migration을 추가해야 한다. 키 분실 시 복구할 수 없으므로 애플리케이션 배포물과 분리해 백업한다.
+
+프론트엔드는 전체 category를 한 번 조회해 이력서 순서로 섹션을 렌더링한다. `/app/profile` 진입 시 전체 문서가 기본이며, sticky 목차의 category 버튼은 필터 상태를 바꾸지 않고 안정적인 section id로 `scrollIntoView`를 호출한다. 검색은 복호화되어 전달된 현재 사용자 데이터에만 적용하고 섹션별 CRUD는 기존 optimistic version 계약을 그대로 사용한다.
+
+지원 수정과 자기소개서 작성은 같은 Application aggregate를 사용하되 화면 책임을 분리한다. `/app/applications/:id`는 지원 기본정보와 이벤트 타임라인을 우선 렌더링하고, `/app/applications/:id/essays`는 기존 essay API와 `EssaySection`을 재사용한다. INBOX 자기소개서 상태는 행마다 질문 목록을 조회하지 않고 소유자 범위 `/api/v1/essay-progress` 집계 한 번으로 계산한다. 지원현황 D-day의 `daysUntil`은 서버가 Event의 IANA timezone으로 달력 날짜를 계산해 응답하며, 화면은 완료·취소되지 않은 각 전형의 가장 이른 유효 일정에만 배지를 표시한다.
+
+사람인 adapter는 `access-key`를 서버 환경 변수에서만 읽고, 프론트나 로그에 노출하지 않는다. 키 발급 전 구현 범위는 port/interface, DTO와 내부 공고·일정 매핑, fixture contract test, 캐시 및 일 500회 한도 보호, 채용 목록·달력·Inbox 추가 화면이다. live smoke test, 실제 데이터 누락/형식 편차, 401/429 및 일일 쿼터 동작 확인은 키 발급 후 수행한다.
+
 이벤트 `GET /events`의 from은 포함, to는 미포함 로컬 날짜다. DATETIME은 요청 timezone의 날짜 범위를 UTC로 변환해 조회하고 DATE_ONLY는 날짜 비교로 합친다. UNKNOWN은 이 범위 목록에서 제외하며 지원 건 상세에서 조회한다. 최대 100건을 넘으면 scheduled sort key+id cursor로 다음 페이지를 제공한다. 정렬 키는 DATETIME의 실제 시각, DATE_ONLY는 요청 timezone의 해당 날짜 00:00을 조회용으로만 환산한 시각이다. 이 환산값을 DB 일정이나 알림 기준으로 저장하지 않는다.
 
 ### 10.3 공통 DTO 예시
@@ -487,7 +504,7 @@ ApplicationSummary는 다음 Application에서 notes·events를 제외하고 `ne
 }
 ```
 
-EventCreate는 아래 Event에서 id·applicationId·version·scheduleVersion·confirmedAt·rules의 id를 제외하고 `confirmed:true`를 추가한 입력이다. status/result 기본값은 PLANNED/UNKNOWN. rules 생략 시 예약 안 함. 일정 수정에서 DATE_ONLY로 전환할 때는 scheduledAt/endAt을 명시적으로 null로 보낸다.
+EventCreate는 아래 Event에서 id·applicationId·version·scheduleVersion·confirmedAt·rules의 id를 제외하고 `confirmed:true`를 추가한 입력이다. status/result 기본값은 PLANNED/UNKNOWN. rules 생략 시 예약 안 함. 일정 종류가 바뀌면 서버가 이전 종류의 날짜 필드를 먼저 제거한 뒤 새 모양을 검증한다. 확정 일정을 수정하면 확인이 해제되고 구버전 알림이 취소되므로 사용자가 다시 확인해야 한다.
 
 ```json
 {
@@ -591,6 +608,16 @@ Content-Type: application/json
 ```
 
 추가 code: DUPLICATE_APPLICATION(existingApplicationId 포함), ACTIVE_PARSE_JOB, IDEMPOTENCY_CONFLICT, VERSION_CONFLICT, UNSAFE_URL, FETCH_BLOCKED, ANALYSIS_LIMIT_EXCEEDED, INVALID_IMAGE, EMAIL_NOT_VERIFIED, EVENT_TIME_UNKNOWN, PROVIDER_UNAVAILABLE. 비동기 분석의 외부 오류는 최초 202를 나중에 HTTP 500으로 바꾸지 않고 ParseJob 상태에 기록한다.
+
+### 10.7 구현 확인 기록 — 2026-09-12
+
+- Application 응답에 sourceUrl을 포함하고 목록 조회는 페이지 내 link_id를 한 번에 조회해 N+1 API 호출을 피한다.
+- URL import, 선택 URL이 있는 수동 등록, 기존 지원 URL 수정은 모두 Link.original_url을 원본으로 사용한다.
+- 지원현황은 URL 열 없이 회사·직무 원본 새 탭 열기와 관리 열의 `수정` 링크를 제공하고, URL 편집은 상세 화면에 둔다.
+- Event 일정 수정 UI와 EXACT/DATE_ONLY/UNKNOWN 전환을 구현했다. DOCUMENT_DEADLINE의 ROLLING/UNTIL_FILLED도 보존한다.
+- 일정 종류 전환 및 확정 일정 제거 API 회귀 테스트를 추가했다.
+- 전체 확인 결과: 백엔드 83 tests, `./gradlew build`, 프론트 `npm run lint`, `npx tsc --noEmit`, `npm run build` 통과.
+- 기존 links 컬럼을 사용해 DB migration은 추가하지 않았다. URL 수정 시 ExtractionRun은 생성하지 않는다.
 
 ## 11. 작업 선점·재시도·idempotency
 
@@ -778,7 +805,7 @@ DB 동시성·트랜잭션은 PostgreSQL Testcontainers 통합 테스트로, 공
 
 ## 부록 A. 전체 PostgreSQL DDL
 
-동일 내용의 `schema.sql`을 함께 제공한다. 새 애플리케이션 schema에 적용하는 최초 Flyway migration 후보이며, 기존 테이블 위에 중복 실행하는 스크립트가 아니다. 앱 시간대 검증·소유권·상태 전이·예약 트랜잭션은 본문 규칙에 따라 서비스 코드에서 구현해야 한다.
+아래 DDL과 루트 `schema.sql`은 최초 v1.0 설계 당시의 참고 스냅샷이다. 현재 애플리케이션이나 새 데이터베이스에 직접 적용하지 않는다. 실제 초기화는 백엔드 기동 시 Flyway V1–V8이 담당하고, 현행 스키마는 `docs/DATABASE_SCHEMA.md`와 migration 파일을 확인한다. 앱 시간대 검증·소유권·상태 전이·예약 트랜잭션은 본문 규칙에 따라 서비스 코드에서 구현해야 한다.
 
 ```sql
 -- 채용 지원 일정 관리 MVP / PostgreSQL 16+ / empty application schema
