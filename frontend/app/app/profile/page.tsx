@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ProfileCategory, ProfileItemResponse } from "@/lib/types";
 import { Badge, Button, Field, inputClass } from "@/components/ui";
+import { useConfirm } from "@/components/confirm-dialog";
 
 type FieldDefinition = {
   key: string;
@@ -99,6 +100,8 @@ export default function CareerProfilePage() {
   const [activeSection, setActiveSection] = useState<"ALL" | ProfileCategory>("ALL");
   const [search, setSearch] = useState("");
   const [addingCategory, setAddingCategory] = useState<ProfileCategory | null>(null);
+  const [headerOffset, setHeaderOffset] = useState(0);
+  const stickyBarRef = useRef<HTMLDivElement>(null);
   const items = useQuery({ queryKey: ["profile-items"], queryFn: () => api.get<ProfileItemResponse[]>("/api/v1/profile-items") });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["profile-items"] });
   const visibleItems = useMemo(() => {
@@ -110,6 +113,39 @@ export default function CareerProfilePage() {
     document.getElementById(category === "ALL" ? "profile-resume-top" : `profile-section-${category}`)
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  // The app header above this page is also sticky; measure its height so this
+  // page's own sticky tab bar docks just below it instead of covering it.
+  useEffect(() => {
+    const update = () => setHeaderOffset(document.querySelector("header")?.getBoundingClientRect().height ?? 0);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  // Scrollspy: highlight whichever section's top has passed underneath the
+  // sticky header + tab bar, so the active tab tracks manual scrolling too.
+  useEffect(() => {
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const offset = headerOffset + (stickyBarRef.current?.getBoundingClientRect().height ?? 0) + 4;
+      let current: "ALL" | ProfileCategory = "ALL";
+      for (const category of CATEGORIES) {
+        const el = document.getElementById(`profile-section-${category.value}`);
+        if (el && el.getBoundingClientRect().top <= offset) current = category.value;
+      }
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+      if (atBottom) current = CATEGORIES[CATEGORIES.length - 1].value;
+      setActiveSection((prev) => (prev === current ? prev : current));
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    update();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [headerOffset]);
   const resumeText = CATEGORIES.map((definition) => {
     const categoryItems = (items.data ?? []).filter((item) => item.category === definition.value);
     if (categoryItems.length === 0) return "";
@@ -122,24 +158,40 @@ export default function CareerProfilePage() {
 
   return <div id="profile-resume-top" className="scroll-mt-6 space-y-5">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div><h1 className="text-xl font-semibold">내 지원정보</h1><p className="mt-1 text-sm text-gray-500">저장한 모든 정보를 이력서 순서로 한눈에 확인합니다.</p></div>
-      <Button variant="ghost" disabled={!resumeText} onClick={() => navigator.clipboard.writeText(resumeText)}>전체 정보 복사</Button>
+      <div>
+        <h1 className="text-xl font-semibold">내 지원정보</h1>
+        <p className="mt-1 text-sm text-gray-500">
+          미리 작성해두면, 이력서 작성 시 복사·붙여넣기로 쉽게 완성할 수 있어요.
+        </p>
+      </div>
+      <Button
+        variant="ghost"
+        disabled={!resumeText}
+        onClick={() => navigator.clipboard.writeText(resumeText)}
+        className="border-brand text-brand hover:bg-brand-light"
+      >
+        전체 정보 복사
+      </Button>
     </div>
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">주민등록번호, 여권번호, 계좌번호, 비밀번호는 저장하지 마세요. 연락처·주소·등록번호가 포함된 항목은 민감 정보로 표시해 목록에서 가릴 수 있습니다.</div>
-    <div className="sticky top-0 z-10 -mx-2 space-y-2 border-y border-gray-100 bg-white/95 px-2 py-3 backdrop-blur">
+    <div
+      ref={stickyBarRef}
+      style={{ top: headerOffset }}
+      className="sticky z-10 -mx-2 space-y-2 border-y border-gray-100 bg-white/95 px-2 py-3 backdrop-blur"
+    >
       <div className="flex gap-2 overflow-x-auto pb-1">
-        <button type="button" onClick={() => scrollTo("ALL")} className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${activeSection === "ALL" ? "bg-gray-900 text-white" : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}>전체</button>
+        <button type="button" onClick={() => scrollTo("ALL")} className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition-colors ${activeSection === "ALL" ? "bg-brand text-brand-foreground" : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}>전체</button>
         {CATEGORIES.map((item) => {
           const count = (items.data ?? []).filter((entry) => entry.category === item.value).length;
-          return <button key={item.value} type="button" onClick={() => scrollTo(item.value)} className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${activeSection === item.value ? "bg-gray-900 text-white" : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}>{item.label}{count > 0 && <span className="ml-1 opacity-70">{count}</span>}</button>;
+          return <button key={item.value} type="button" onClick={() => scrollTo(item.value)} className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition-colors ${activeSection === item.value ? "bg-brand text-brand-foreground" : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}>{item.label}{count > 0 && <span className="ml-1 opacity-70">{count}</span>}</button>;
         })}
       </div>
-      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="전체 이력서에서 검색" className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm" />
+      <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="전체 이력서에서 검색" className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand" />
     </div>
     {items.isLoading && <p className="py-12 text-center text-sm text-gray-400">지원정보를 불러오는 중…</p>}
     {!items.isLoading && search && visibleItems.length === 0 && <p className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-400">검색 결과가 없습니다.</p>}
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-      <div className="border-b border-gray-200 bg-gray-50 px-5 py-4"><p className="text-xs font-medium uppercase tracking-widest text-gray-400">Career Profile</p><h2 className="mt-1 text-lg font-semibold">이력서 정보</h2></div>
+      <div className="border-b border-gray-200 bg-brand-light px-5 py-4"><p className="text-xs font-medium uppercase tracking-widest text-brand">Career Profile</p><h2 className="mt-1 text-lg font-semibold text-brand-dark">이력서 정보</h2></div>
       {CATEGORIES.map((definition, index) => {
         const allCategoryItems = (items.data ?? []).filter((item) => item.category === definition.value);
         const categoryItems = visibleItems.filter((item) => item.category === definition.value);
@@ -147,8 +199,15 @@ export default function CareerProfilePage() {
         const adding = addingCategory === definition.value;
         return <section id={`profile-section-${definition.value}`} key={definition.value} className="scroll-mt-28 border-b border-gray-200 p-5 last:border-b-0">
           <div className="mb-4 flex items-start justify-between gap-3">
-            <div><div className="flex items-center gap-2"><span className="text-xs font-semibold text-gray-400">{String(index + 1).padStart(2, "0")}</span><h2 className="text-lg font-semibold">{definition.label}</h2>{allCategoryItems.length > 0 && <Badge>{allCategoryItems.length}</Badge>}</div><p className="mt-1 text-xs text-gray-500">{definition.hint}</p></div>
-            <Button variant="ghost" disabled={!canAdd} onClick={() => setAddingCategory(adding ? null : definition.value)}>{adding ? "닫기" : canAdd ? "+ 추가" : "등록 완료"}</Button>
+            <div><div className="flex items-center gap-2"><span className="text-xs font-semibold text-brand">{String(index + 1).padStart(2, "0")}</span><h2 className="text-lg font-semibold">{definition.label}</h2>{allCategoryItems.length > 0 && <Badge>{allCategoryItems.length}</Badge>}</div><p className="mt-1 text-xs text-gray-500">{definition.hint}</p></div>
+            <Button
+              variant="ghost"
+              disabled={!canAdd}
+              onClick={() => setAddingCategory(adding ? null : definition.value)}
+              className={adding ? "" : "border-brand text-brand hover:bg-brand-light"}
+            >
+              {adding ? "닫기" : canAdd ? "+ 추가" : "등록 완료"}
+            </Button>
           </div>
           {adding && <div className="mb-4"><ProfileItemForm key={definition.value} definition={definition} onCancel={() => setAddingCategory(null)} onSaved={() => { setAddingCategory(null); refresh(); }} /></div>}
           <div className="space-y-3">
@@ -163,6 +222,7 @@ export default function CareerProfilePage() {
 }
 
 function ProfileItemCard({ item, onChanged }: { item: ProfileItemResponse; onChanged: () => void }) {
+  const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [revealed, setRevealed] = useState(!item.sensitive);
   const remove = useMutation({ mutationFn: () => api.del(`/api/v1/profile-items/${item.id}`, item.version), onSuccess: onChanged });
@@ -176,9 +236,17 @@ function ProfileItemCard({ item, onChanged }: { item: ProfileItemResponse; onCha
       <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">{item.label}</h3>{item.sensitive && <Badge tone="amber">민감 정보</Badge>}</div>
       <div className="flex shrink-0 items-center gap-2 text-xs">
         {item.sensitive && <button type="button" onClick={() => setRevealed((value) => !value)} className="text-gray-500 hover:underline">{revealed ? "가리기" : "보기"}</button>}
-        <button type="button" onClick={() => navigator.clipboard.writeText(copyText)} className="text-blue-600 hover:underline">전체 복사</button>
-        <button type="button" onClick={() => setEditing(true)} className="text-blue-600 hover:underline">수정</button>
-        <button type="button" onClick={() => window.confirm(`“${item.label}” 항목을 삭제할까요?`) && remove.mutate()} className="text-gray-400 hover:text-red-600">삭제</button>
+        <button type="button" onClick={() => navigator.clipboard.writeText(copyText)} className="text-brand hover:underline">전체 복사</button>
+        <button type="button" onClick={() => setEditing(true)} className="text-brand hover:underline">수정</button>
+        <button
+          type="button"
+          onClick={async () => {
+            if (await confirm({ message: `"${item.label}" 항목을 삭제할까요?`, tone: "danger", confirmLabel: "삭제" })) {
+              remove.mutate();
+            }
+          }}
+          className="text-gray-400 hover:text-red-600"
+        >삭제</button>
       </div>
     </div>
     <dl className="mt-3 grid gap-x-6 gap-y-3 border-t border-gray-100 pt-3 sm:grid-cols-2">
@@ -207,7 +275,7 @@ function ProfileItemForm({ definition, initial, onCancel, onSaved }: { definitio
     <div className="grid gap-3 sm:grid-cols-2">{definition.fields.map((entry) => <div key={entry.key} className={entry.wide ? "sm:col-span-2" : ""}><Field label={entry.label}><ProfileInput definition={entry} value={values[entry.key] ?? ""} onChange={(value) => setValues((current) => ({ ...current, [entry.key]: value }))} /></Field></div>)}</div>
     {(initial?.valueText || initial?.details) && <div className="mt-4 rounded-md bg-gray-50 p-3"><p className="mb-3 text-xs text-gray-500">이전 범용 양식의 내용입니다. 전용 칸으로 옮긴 뒤 비워도 됩니다.</p><div className="grid gap-3"><Field label="이전 핵심 내용"><textarea value={legacyValue} onChange={(event) => setLegacyValue(event.target.value)} rows={3} className={inputClass} /></Field><Field label="이전 상세 메모"><textarea value={legacyDetails} onChange={(event) => setLegacyDetails(event.target.value)} rows={5} className={inputClass} /></Field></div></div>}
     <label className="mt-3 flex items-center gap-2 text-sm text-gray-600"><input type="checkbox" checked={sensitive} onChange={(event) => setSensitive(event.target.checked)} />목록에서 모든 값을 기본적으로 가리기</label>
-    <div className="mt-3 flex items-center gap-2"><Button type="submit" disabled={save.isPending || !hasValue}>{save.isPending ? "저장 중…" : "저장"}</Button><Button type="button" variant="ghost" onClick={onCancel}>취소</Button>{save.isError && <span className="text-xs text-red-600">{save.error.message}</span>}</div>
+    <div className="mt-3 flex items-center gap-2"><Button type="submit" variant="brand" disabled={save.isPending || !hasValue}>{save.isPending ? "저장 중…" : "저장"}</Button><Button type="button" variant="ghost" onClick={onCancel}>취소</Button>{save.isError && <span className="text-xs text-red-600">{save.error.message}</span>}</div>
   </form>;
 }
 
