@@ -6,12 +6,13 @@ export function Button({
   className,
   variant = "primary",
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "danger" }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "brand" | "ghost" | "danger" }) {
   return (
     <button
       className={clsx(
         "inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition disabled:opacity-50",
         variant === "primary" && "bg-gray-900 text-white hover:bg-gray-700",
+        variant === "brand" && "bg-brand text-brand-foreground hover:bg-brand-dark",
         variant === "ghost" && "border border-gray-300 bg-white hover:bg-gray-50",
         variant === "danger" && "border border-red-300 bg-white text-red-600 hover:bg-red-50",
         className,
