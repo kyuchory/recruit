@@ -21,10 +21,15 @@ export default function NotificationsPage() {
 
   return (
     <div>
-      <h1 className="text-lg font-semibold">
-        알림함 {q.data ? <span className="text-sm text-gray-400">읽지 않음 {q.data.unreadCount}</span> : null}
-      </h1>
-      <p className="mt-1 text-xs text-gray-400">
+      <div className="flex items-center gap-2">
+        <h1 className="text-xl font-semibold">알림함</h1>
+        {q.data && q.data.unreadCount > 0 && (
+          <span className="rounded-full bg-brand px-2 py-0.5 text-xs font-semibold text-brand-foreground">
+            읽지 않음 {q.data.unreadCount}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-sm text-gray-500">
         앱 내 알림입니다. 발송 요청 완료는 실제 수신을 의미하지 않습니다.
       </p>
 
@@ -37,8 +42,8 @@ export default function NotificationsPage() {
             <li
               key={n.id}
               className={
-                "rounded-lg border p-3 text-sm " +
-                (n.readAt ? "border-gray-200 bg-white" : "border-blue-200 bg-blue-50")
+                "rounded-xl border p-3 text-sm shadow-sm " +
+                (n.readAt ? "border-gray-200 bg-white" : "border-brand bg-brand-light")
               }
             >
               <div className="flex items-center justify-between">

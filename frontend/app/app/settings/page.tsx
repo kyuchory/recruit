@@ -53,7 +53,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-lg space-y-4">
-      <h1 className="text-lg font-semibold">설정</h1>
+      <h1 className="text-xl font-semibold">설정</h1>
 
       {settingsQ.isError && (
         <p className="text-sm text-gray-500">설정을 불러올 수 없습니다.</p>
@@ -61,7 +61,7 @@ export default function SettingsPage() {
 
       {current && (
         <form
-          className="space-y-4 rounded-lg border border-gray-200 bg-white p-4"
+          className="space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
           onSubmit={(e) => {
             e.preventDefault();
             setNotice(null);
@@ -106,7 +106,7 @@ export default function SettingsPage() {
           </label>
 
           <div className="flex items-center gap-3">
-            <Button type="submit" disabled={!dirty || save.isPending}>
+            <Button type="submit" variant="brand" disabled={!dirty || save.isPending}>
               저장
             </Button>
             {notice && <span className="text-sm text-gray-500">{notice}</span>}
@@ -114,7 +114,7 @@ export default function SettingsPage() {
         </form>
       )}
 
-      <section className="rounded-lg border border-gray-200 bg-white p-4 text-sm">
+      <section className="rounded-xl border border-gray-200 bg-white p-4 text-sm shadow-sm">
         <h2 className="font-medium">알림 채널</h2>
         <p className="mt-1 text-gray-500">
           1차 필수 채널은 이메일과 앱 내 알림입니다. Web Push는 후속 단계입니다.
