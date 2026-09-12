@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { api, API_BASE_URL } from "@/lib/api";
 import { safeReturnTo } from "@/lib/auth-flow";
@@ -27,9 +28,9 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
-      <Link href="/" className="mb-8 text-sm text-gray-500 hover:text-gray-900">← 홈으로</Link>
-      <h1 className="text-2xl font-semibold">채용공고 Inbox</h1>
-      <p className="mt-2 text-sm text-gray-500">
+      <Link href="/" className="mb-8 text-sm text-gray-500 hover:text-brand">← 홈으로</Link>
+      <Image src="/logo.png" alt="InBOX" width={104} height={38} priority className="h-9 w-auto" />
+      <p className="mt-4 text-sm text-gray-500">
         로그인하면 저장한 공고와 전형 일정을 어느 기기에서든 이어서 관리할 수 있습니다.
       </p>
 
